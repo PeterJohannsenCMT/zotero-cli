@@ -22,6 +22,46 @@ pub fn stdout_is_terminal() -> bool {
     std::io::stdout().is_terminal()
 }
 
+/// Whether this process is one stage of a shell pipeline that also runs
+/// another `zotero` command (e.g. `zotero list | zotero open`). Used to
+/// limit the plain, key-only output to the case it's actually meant for,
+/// rather than any time stdout happens to be piped (into `less`, a file,
+/// `grep`, ...), where the normal table is still what's expected.
+///
+/// Detected by looking for a sibling process (same parent, i.e. the same
+/// shell) whose command is `zotero`. This isn't a check of the actual pipe
+/// wiring, just a good-enough heuristic for the common case.
+#[cfg(unix)]
+pub fn piped_into_zotero() -> bool {
+    let own_pid = std::process::id();
+    let parent_pid = unsafe { libc::getppid() } as u32;
+
+    let output = match std::process::Command::new("ps")
+        .args(["-eo", "pid=,ppid=,comm="])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return false,
+    };
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| {
+            let mut fields = line.split_whitespace();
+            let pid: Option<u32> = fields.next().and_then(|s| s.parse().ok());
+            let ppid: Option<u32> = fields.next().and_then(|s| s.parse().ok());
+            let comm = fields.next().unwrap_or("");
+            let name = comm.rsplit('/').next().unwrap_or(comm);
+
+            ppid == Some(parent_pid) && pid != Some(own_pid) && name == "zotero"
+        })
+}
+
+#[cfg(not(unix))]
+pub fn piped_into_zotero() -> bool {
+    false
+}
+
 /// Print a human-readable table: TAG / YEAR / AUTHOR / TITLE. The title
 /// column wraps to fit the terminal width, with continuation lines padded
 /// under the TITLE column so they never get mistaken for another row or
@@ -69,7 +109,7 @@ pub fn print_table(items: &[&ApiItem]) {
 }
 
 /// Print just the citation/item key of each item, one per line, for piping
-/// into other `zotero` commands.
+/// into another `zotero` command.
 pub fn print_keys(items: &[&ApiItem]) {
     for item in items {
         println!("{}", display_key(item));

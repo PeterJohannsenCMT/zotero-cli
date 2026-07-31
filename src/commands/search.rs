@@ -7,9 +7,10 @@ use crate::display;
 use crate::sync;
 use crate::zotero_api::{ApiItem, ZoteroClient};
 
-/// Print the citation key (or raw item key, if it has none) of every item
-/// matching the given criteria, one per line, so the output can be piped
-/// straight into `zotero open`/`zotero edit`/etc.
+/// Print every item matching the given criteria as a table, or, when piped
+/// straight into another `zotero` command (e.g. `zotero open`/`zotero
+/// edit`/etc.), as just the citation key (or raw item key, if it has none)
+/// of each item, one per line.
 ///
 /// `query` matches against every searchable field; `author`, `title`, and
 /// `key` restrict the match to just that field. Any combination of these may
@@ -69,10 +70,10 @@ pub fn run(
 
     items.sort_by_key(|item| display::display_key(item));
 
-    if display::stdout_is_terminal() {
-        display::print_table(&items);
-    } else {
+    if !display::stdout_is_terminal() && display::piped_into_zotero() {
         display::print_keys(&items);
+    } else {
+        display::print_table(&items);
     }
 
     Ok(())
