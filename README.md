@@ -50,6 +50,8 @@ zotero search "spin qubit"           # multi-word: matches items containing all 
 zotero search --author claeys        # only match against author/creator names
 zotero search --title qubit          # only match against the title
 zotero search --key richardson       # only match against the citation key
+zotero search --tags optics          # only match against Zotero tags
+zotero search --keywords topological # only match against local keywords (see below)
 zotero search --author claeys --key 2017   # combine flags (AND'ed together)
 zotero search majorana | xargs -I{} zotero open {}   # pipe into open/edit/etc.
 
@@ -113,6 +115,15 @@ the item's AuthorYear tag, so a `.bib` file pulled with `zotero export`
 cites the same way `zotero open`/`edit` address the item. Items without an
 AuthorYear tag (no derivable author/year) fall back to their raw Zotero key,
 with a warning on stderr.
+
+## Local keywords
+
+`zotero edit` includes a `keywords` field (a list of arbitrary length) that
+has nothing to do with Zotero's own `tags` field. Since Zotero's item schema
+has no such field, keywords aren't synced through the Web API — they're kept
+in a local file, `keywords.json`, next to `config.toml` (i.e. *not* in the
+disposable `cache.json` — deleting the cache to force a resync won't lose
+them). Search for them with `zotero search --keywords <term>`.
 
 ## Shell completion (zsh)
 

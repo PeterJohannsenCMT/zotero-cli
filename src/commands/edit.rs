@@ -4,6 +4,7 @@ use std::process::Command;
 
 use crate::cache::Cache;
 use crate::config::Config;
+use crate::keywords::Keywords;
 use crate::sync;
 use crate::zotero_api::ZoteroClient;
 
@@ -37,6 +38,10 @@ struct EditableItem {
     abstract_note: String,
     #[serde(default)]
     tags: Vec<String>,
+    /// Local-only keywords, not synced to Zotero (it has no such field).
+    /// Stored separately and merged back in after editing.
+    #[serde(default)]
+    keywords: Vec<String>,
     #[serde(default)]
     creators: Vec<EditableCreator>,
 }
@@ -93,6 +98,7 @@ impl EditableItem {
             url: get_str("url"),
             abstract_note: get_str("abstractNote"),
             tags,
+            keywords: Vec::new(),
             creators,
         }
     }
@@ -137,7 +143,9 @@ pub fn run(identifier: &str) -> Result<()> {
         .find_by_identifier(identifier)
         .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
         .clone();
-    let editable = EditableItem::from_data(&item.data);
+    let mut keyword_store = Keywords::load()?;
+    let mut editable = EditableItem::from_data(&item.data);
+    editable.keywords = keyword_store.for_item(&item.key);
     let toml_text = toml::to_string_pretty(&editable).context("serializing item for editing")?;
 
     let tmp_path = std::env::temp_dir().join(format!("zotero-cli-edit-{}.toml", item.key));
@@ -162,6 +170,9 @@ pub fn run(identifier: &str) -> Result<()> {
 
     let edited: EditableItem = toml::from_str(&edited_text).context("parsing edited TOML")?;
     let patch = edited.to_patch();
+
+    keyword_store.set(&item.key, edited.keywords.clone());
+    keyword_store.save()?;
 
     let new_version = client.update_item(&item.key, item.version, patch.clone())?;
 

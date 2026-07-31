@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod crossref;
 mod display;
+mod keywords;
 mod storage;
 mod sync;
 mod tagging;
@@ -44,6 +45,12 @@ enum Commands {
         /// Only match against the citation key (or raw item key)
         #[arg(long)]
         key: Option<String>,
+        /// Only match against Zotero tags
+        #[arg(long)]
+        tags: Option<String>,
+        /// Only match against local keywords (set via `zotero edit`)
+        #[arg(long)]
+        keywords: Option<String>,
         /// Only search items in this subcollection
         #[arg(long)]
         subcollection: Option<String>,
@@ -133,6 +140,8 @@ fn main() {
             author,
             title,
             key,
+            tags,
+            keywords,
             subcollection,
             tag,
         } => commands::search::run(
@@ -140,6 +149,8 @@ fn main() {
             author.as_deref(),
             title.as_deref(),
             key.as_deref(),
+            tags.as_deref(),
+            keywords.as_deref(),
             subcollection,
             tag,
         ),

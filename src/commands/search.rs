@@ -1,9 +1,12 @@
 use anyhow::{Result, bail};
 use serde_json::Value;
 
+use std::collections::HashMap;
+
 use crate::cache::Cache;
 use crate::config::Config;
 use crate::display;
+use crate::keywords::Keywords;
 use crate::sync;
 use crate::zotero_api::{ApiItem, ZoteroClient};
 
@@ -21,34 +24,47 @@ pub fn run(
     author: Option<&str>,
     title: Option<&str>,
     key: Option<&str>,
+    tags: Option<&str>,
+    keywords: Option<&str>,
     subcollection: Option<String>,
     tag: Option<String>,
 ) -> Result<()> {
-    type FieldFn = fn(&ApiItem) -> String;
-
-    let filters: Vec<(&str, FieldFn)> = [
-        (query, haystack as FieldFn),
-        (author, author_haystack as FieldFn),
-        (title, title_haystack as FieldFn),
-        (key, key_haystack as FieldFn),
-    ]
-    .into_iter()
-    .filter_map(|(q, f)| q.map(|q| (q, f)))
-    .collect();
-
-    if filters.is_empty() {
-        bail!("no search term given: pass a query, or use --author/--title/--key");
+    if [query, author, title, key, tags, keywords]
+        .iter()
+        .all(Option::is_none)
+    {
+        bail!(
+            "no search term given: pass a query, or use --author/--title/--key/--tags/--keywords"
+        );
     }
 
     let config = Config::load()?;
     let client = ZoteroClient::from_config(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&client, &mut cache)?;
+    let keyword_store = Keywords::load()?;
 
     let collection_key = match &subcollection {
         Some(name) => Some(cache.resolve_collection_by_name(name)?),
         None => None,
     };
+
+    type FieldFn<'a> = Box<dyn Fn(&ApiItem) -> String + 'a>;
+    let keyword_map = keyword_store.all();
+    let filters: Vec<(&str, FieldFn)> = [
+        (query, Box::new(haystack) as FieldFn),
+        (author, Box::new(author_haystack) as FieldFn),
+        (title, Box::new(title_haystack) as FieldFn),
+        (key, Box::new(key_haystack) as FieldFn),
+        (tags, Box::new(tags_haystack) as FieldFn),
+        (
+            keywords,
+            Box::new(move |item: &ApiItem| keywords_haystack(item, keyword_map)) as FieldFn,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(q, f)| q.map(|q| (q, f)))
+    .collect();
 
     let terms: Vec<(Vec<String>, FieldFn)> = filters
         .into_iter()
@@ -127,6 +143,20 @@ fn author_haystack(item: &ApiItem) -> String {
 /// Just the title, lowercased.
 fn title_haystack(item: &ApiItem) -> String {
     item.title().to_lowercase()
+}
+
+/// Just the Zotero tags, lowercased.
+fn tags_haystack(item: &ApiItem) -> String {
+    item.tags().join(" \u{1}").to_lowercase()
+}
+
+/// Just the local keywords (set via `zotero edit`), lowercased.
+fn keywords_haystack(item: &ApiItem, keywords: &HashMap<String, Vec<String>>) -> String {
+    keywords
+        .get(&item.key)
+        .map(|kw| kw.join(" \u{1}"))
+        .unwrap_or_default()
+        .to_lowercase()
 }
 
 /// Just the item's citation key (falling back to its raw Zotero key),
