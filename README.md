@@ -3,18 +3,26 @@
 A small command-line client for your [Zotero](https://www.zotero.org) library,
 backed by the [Zotero Web API](https://www.zotero.org/support/dev/web_api/v3/start).
 
+## Install
+
+Via Homebrew (macOS/Linux):
+
+```sh
+brew install PeterJohannsenCMT/tap/zotero-cli
+```
+
+Or build from source:
+
+```sh
+cargo install --path .
+# or: cargo build --release && ./target/release/zotero --version
+```
+
 ## Setup
 
 1. Get an API key at https://www.zotero.org/settings/keys (needs read/write access
    to the library you want to manage). Your numeric user ID is shown on the same page.
-2. Build it:
-
-   ```sh
-   cargo build --release
-   # binary at target/release/zotero
-   ```
-
-3. Configure it:
+2. Configure it:
 
    ```sh
    zotero config
@@ -134,3 +142,7 @@ incremental and fast. Delete the cache file any time to force a full resync.
   Zotero data directory (`storage/<key>/<filename>`) and opens it with your
   OS's default handler. If there's no PDF, it opens the item's URL or DOI
   instead.
+
+## License
+
+[MIT](LICENSE)

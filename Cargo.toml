@@ -1,7 +1,10 @@
 [package]
 name = "zotero"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+description = "A command-line client for your Zotero library"
+license = "MIT"
+repository = "https://github.com/PeterJohannsenCMT/zotero-cli"
 
 [[bin]]
 name = "zotero"
