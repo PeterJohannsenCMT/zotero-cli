@@ -3,6 +3,7 @@ pub mod collections;
 pub mod completions;
 pub mod config_cmd;
 pub mod edit;
+pub mod export;
 pub mod list;
 pub mod open;
 pub mod search;

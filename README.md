@@ -55,6 +55,10 @@ zotero collections edit Optics "Optics & Photonics"   # rename a subcollection
 
 zotero add 10.1038/nphys1170         # look up a DOI on CrossRef and add it
 
+zotero export Smith2020 Doe2021             # print BibTeX for specific items
+zotero export --subcollection=Optics > optics.bib   # export a whole collection
+zotero search majorana | zotero export > refs.bib   # export search results
+
 zotero open Smith2020                # open the PDF for the item tagged Smith2020
                                       # (falls back to the item's URL/DOI if no PDF)
 
@@ -98,6 +102,13 @@ matches the item by from then on.
 `zotero list`/`open`/`edit` look for a tag shaped like a name followed by a
 4-digit year (with an optional letter suffix) and show/match on it in
 preference to the raw item key.
+
+`zotero export` uses Zotero's own BibTeX rendering (so field formatting and
+escaping match a normal Zotero export) but always rewrites the citekey to
+the item's AuthorYear tag, so a `.bib` file pulled with `zotero export`
+cites the same way `zotero open`/`edit` address the item. Items without an
+AuthorYear tag (no derivable author/year) fall back to their raw Zotero key,
+with a warning on stderr.
 
 ## Shell completion (zsh)
 

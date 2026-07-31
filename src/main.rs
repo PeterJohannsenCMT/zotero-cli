@@ -64,6 +64,19 @@ enum Commands {
         /// read one per line from stdin (e.g. piped from `zotero search`).
         identifier: Option<String>,
     },
+    /// Export items as BibTeX, with citekeys matching their AuthorYear tag
+    Export {
+        /// AuthorYear tags or raw Zotero item keys to export. If omitted,
+        /// identifiers are read one per line from stdin (e.g. piped from
+        /// `zotero search`), or use --subcollection/--tag to select a set.
+        identifiers: Vec<String>,
+        /// Export items in this subcollection
+        #[arg(long)]
+        subcollection: Option<String>,
+        /// Export items with this tag
+        #[arg(long)]
+        tag: Option<String>,
+    },
     /// Configure your Zotero API credentials and data directory
     Config,
     /// Print a shell completion script (with dynamic paper-key suggestions
@@ -121,6 +134,11 @@ fn main() {
         Commands::Add { doi } => commands::add::run(&doi),
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
+        Commands::Export {
+            identifiers,
+            subcollection,
+            tag,
+        } => commands::export::run(identifiers, subcollection, tag),
         Commands::Config => commands::config_cmd::run(),
         Commands::Completions { shell } => commands::completions::run(shell),
     };
@@ -155,7 +173,7 @@ fn run_for_each(
     Ok(())
 }
 
-fn read_identifiers_from_stdin() -> anyhow::Result<Vec<String>> {
+pub(crate) fn read_identifiers_from_stdin() -> anyhow::Result<Vec<String>> {
     use std::io::Read;
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf)?;

@@ -27,6 +27,7 @@ _zotero() {
                 'add:Add an item to your library from a DOI'
                 'open:Open an item'\''s PDF (or its URL/DOI)'
                 'edit:Edit an item'\''s metadata in \$EDITOR'
+                'export:Export items as BibTeX'
                 'config:Configure your Zotero API credentials'
                 'completions:Print a shell completion script'
             )
@@ -41,6 +42,12 @@ _zotero() {
                     _arguments \
                         '--subcollection=[Only items in this subcollection]:name:' \
                         '--tag=[Only items with this tag]:tag:_zotero_paper_keys'
+                    ;;
+                export)
+                    _arguments \
+                        '--subcollection=[Export items in this subcollection]:name:' \
+                        '--tag=[Export items with this tag]:tag:_zotero_paper_keys' \
+                        '*:paper key:_zotero_paper_keys'
                     ;;
                 collections)
                     local -a collections_subcmds

@@ -304,6 +304,26 @@ impl ZoteroClient {
         Ok(version_header(&resp).unwrap_or(version + 1))
     }
 
+    /// Fetch a single item's BibTeX export, as rendered by Zotero (plain
+    /// text, one entry). The citekey Zotero generates is not touched here —
+    /// callers that want the item's AuthorYear tag as the citekey need to
+    /// rewrite it themselves.
+    pub fn item_bibtex(&self, key: &str) -> Result<String> {
+        let url = format!("{}/items/{}?format=bibtex", self.base_url, key);
+        let resp = self.http.get(&url).send().context("request failed")?;
+        let status = resp.status();
+        let text = resp.text().context("reading response body")?;
+        if !status.is_success() {
+            bail!(
+                "fetching bibtex for item {} failed: {} {}",
+                key,
+                status,
+                text
+            );
+        }
+        Ok(text)
+    }
+
     /// Search existing tags starting with `prefix` (case-insensitive).
     pub fn tags_starting_with(&self, prefix: &str) -> Result<Vec<String>> {
         let query = format!("q={}", urlencoding::encode(prefix));
