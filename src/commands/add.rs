@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::cache::Cache;
 use crate::config::Config;
 use crate::crossref;
 use crate::tagging;
@@ -29,6 +30,13 @@ pub fn run(doi: &str) -> Result<()> {
         tag,
         created.key
     );
+
+    // Insert directly into the cache so it shows up immediately in `list`/
+    // `search`/`open`/`edit` even within the freshness window that would
+    // otherwise skip talking to the server again.
+    let mut cache = Cache::load()?;
+    cache.items.insert(created.key.clone(), created);
+    cache.save()?;
 
     Ok(())
 }

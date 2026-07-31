@@ -17,6 +17,10 @@ pub struct Cache {
     pub items: HashMap<String, ApiItem>,
     #[serde(default)]
     pub collections: HashMap<String, Collection>,
+    /// Unix timestamp of the last time we actually talked to the server
+    /// (as opposed to serving straight from this cache). See `sync::sync_library`.
+    #[serde(default)]
+    pub last_synced_at: u64,
 }
 
 impl Cache {

@@ -1,22 +1,47 @@
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cache::Cache;
 use crate::tagging;
 use crate::zotero_api::{ApiItem, Collection, ZoteroClient};
 
+/// How long a synced cache is considered fresh enough to serve without
+/// talking to the server at all. This is what makes repeated `zotero`
+/// invocations within a normal working session feel instant instead of
+/// paying 3 sequential network round-trips (deleted/collections/items) every
+/// single time, at the cost of not noticing changes made elsewhere (e.g. in
+/// the Zotero desktop app) until this window has passed. Changes made
+/// through `zotero` itself (`add`, `edit`) update the cache directly, so
+/// they're unaffected by this window.
+const FRESHNESS_WINDOW_SECS: u64 = 60;
+
 /// Bring the local cache up to date with the server (an incremental fetch
 /// after the first run), then backfill an AuthorYear tag onto any item that
 /// doesn't have one yet, writing it back to Zotero so it's a real, persistent,
-/// user-editable tag rather than something recomputed every time.
+/// user-editable tag rather than something recomputed every time. Skips all
+/// of this (and any network access at all) if the cache was synced within
+/// `FRESHNESS_WINDOW_SECS`.
 pub fn sync_library(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
+    if now().saturating_sub(cache.last_synced_at) < FRESHNESS_WINDOW_SECS {
+        return Ok(());
+    }
+
     pull_changes(client, cache)?;
     dedupe_citation_keys(client, cache)?;
     normalize_citation_keys(client, cache)?;
     backfill_citation_keys(client, cache)?;
+    cache.last_synced_at = now();
     cache.save()?;
     Ok(())
+}
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Collapse an item down to a single AuthorYear-shaped tag if it somehow
