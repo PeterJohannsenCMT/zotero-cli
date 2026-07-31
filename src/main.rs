@@ -42,6 +42,11 @@ enum Commands {
         #[arg(long)]
         tag: Option<String>,
     },
+    /// List or search your subcollections
+    Collections {
+        #[command(subcommand)]
+        command: CollectionsCommand,
+    },
     /// Add an item to your library from a DOI
     Add {
         /// The DOI to look up (e.g. 10.1000/xyz123)
@@ -69,6 +74,24 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum CollectionsCommand {
+    /// List all subcollections as an indented tree
+    List,
+    /// Search subcollections by name, printing matching names one per line
+    Search {
+        /// Free-text query, matched against subcollection names
+        query: String,
+    },
+    /// Rename a subcollection
+    Edit {
+        /// The subcollection's current name
+        name: String,
+        /// The subcollection's new name
+        new_name: String,
+    },
+}
+
 fn main() {
     // Rust ignores SIGPIPE by default and turns a write into a closed pipe
     // into a panic; restore the standard Unix behavior (just exit) so piping
@@ -88,6 +111,13 @@ fn main() {
             subcollection,
             tag,
         } => commands::search::run(&query, subcollection, tag),
+        Commands::Collections { command } => match command {
+            CollectionsCommand::List => commands::collections::list(),
+            CollectionsCommand::Search { query } => commands::collections::search(&query),
+            CollectionsCommand::Edit { name, new_name } => {
+                commands::collections::edit(&name, &new_name)
+            }
+        },
         Commands::Add { doi } => commands::add::run(&doi),
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),

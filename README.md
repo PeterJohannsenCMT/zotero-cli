@@ -49,6 +49,10 @@ zotero search majorana               # print matching keys, one per line
 zotero search "spin qubit"           # multi-word: matches items containing all words
 zotero search majorana | xargs -I{} zotero open {}   # pipe into open/edit/etc.
 
+zotero collections list              # list all subcollections as an indented tree
+zotero collections search optics     # print subcollection names matching a query
+zotero collections edit Optics "Optics & Photonics"   # rename a subcollection
+
 zotero add 10.1038/nphys1170         # look up a DOI on CrossRef and add it
 
 zotero open Smith2020                # open the PDF for the item tagged Smith2020
@@ -133,10 +137,10 @@ incremental and fast. Delete the cache file any time to force a full resync.
 
 ## Notes
 
-- Writes (`add`, `edit`, and the AuthorYear backfill) go through the Zotero
-  Web API rather than touching Zotero's local SQLite database directly,
-  since direct external writes to that database are unsupported and can
-  cause sync corruption.
+- Writes (`add`, `edit`, `collections edit`, and the AuthorYear backfill) go
+  through the Zotero Web API rather than touching Zotero's local SQLite
+  database directly, since direct external writes to that database are
+  unsupported and can cause sync corruption.
 - `zotero open` looks for a PDF child attachment on the item. For attachments
   Zotero has synced to disk, it resolves the file path under your local
   Zotero data directory (`storage/<key>/<filename>`) and opens it with your

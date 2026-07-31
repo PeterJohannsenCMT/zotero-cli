@@ -112,12 +112,19 @@ impl ApiItem {
 pub struct Collection {
     pub key: String,
     #[serde(default)]
+    pub version: i64,
+    #[serde(default)]
     pub data: Value,
 }
 
 impl Collection {
     pub fn name(&self) -> &str {
         self.data.get("name").and_then(Value::as_str).unwrap_or("")
+    }
+
+    /// The key of the collection this one is nested under, if any.
+    pub fn parent_key(&self) -> Option<&str> {
+        self.data.get("parentCollection").and_then(Value::as_str)
     }
 }
 
@@ -199,6 +206,20 @@ impl ZoteroClient {
         Ok(values)
     }
 
+    /// Fetch a single collection's current state directly from the server
+    /// (bypassing the local cache), so callers can get its up-to-date
+    /// version before a conditional update.
+    pub fn get_collection(&self, key: &str) -> Result<Collection> {
+        let url = format!("{}/collections/{}?format=json", self.base_url, key);
+        let resp = self.http.get(&url).send().context("request failed")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            bail!("fetching collection failed: {} {}", status, body);
+        }
+        resp.json().context("parsing collection response")
+    }
+
     /// Keys of items/collections/tags permanently deleted since `since`.
     pub fn deleted_since(&self, since: i64) -> Result<Value> {
         let url = format!("{}/deleted?since={}", self.base_url, since);
@@ -259,6 +280,26 @@ impl ZoteroClient {
         if !status.is_success() {
             let body = resp.text().unwrap_or_default();
             bail!("updating item failed: {} {}", status, body);
+        }
+        Ok(version_header(&resp).unwrap_or(version + 1))
+    }
+
+    /// Partially update a collection. `patch` should contain only the
+    /// changed fields (e.g. `{"name": "New Name"}`). Returns the
+    /// collection's new library version.
+    pub fn update_collection(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
+        let url = format!("{}/collections/{}", self.base_url, key);
+        let resp = self
+            .http
+            .patch(&url)
+            .header("If-Unmodified-Since-Version", version.to_string())
+            .json(&patch)
+            .send()
+            .context("request failed")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            bail!("updating collection failed: {} {}", status, body);
         }
         Ok(version_header(&resp).unwrap_or(version + 1))
     }

@@ -23,6 +23,7 @@ _zotero() {
             subcmds=(
                 'list:List items in your library'
                 'search:Search your library, printing matching keys'
+                'collections:List or search your subcollections'
                 'add:Add an item to your library from a DOI'
                 'open:Open an item'\''s PDF (or its URL/DOI)'
                 'edit:Edit an item'\''s metadata in \$EDITOR'
@@ -40,6 +41,15 @@ _zotero() {
                     _arguments \
                         '--subcollection=[Only items in this subcollection]:name:' \
                         '--tag=[Only items with this tag]:tag:_zotero_paper_keys'
+                    ;;
+                collections)
+                    local -a collections_subcmds
+                    collections_subcmds=(
+                        'list:List all subcollections as an indented tree'
+                        'search:Search subcollections by name'
+                        'edit:Rename a subcollection'
+                    )
+                    _describe 'collections command' collections_subcmds
                     ;;
                 completions)
                     _arguments '1:shell:(zsh)'
