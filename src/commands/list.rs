@@ -2,8 +2,9 @@ use anyhow::Result;
 
 use crate::cache::Cache;
 use crate::config::Config;
+use crate::display;
 use crate::sync;
-use crate::zotero_api::{ApiItem, ZoteroClient};
+use crate::zotero_api::ZoteroClient;
 
 pub fn run(subcollection: Option<String>, tag: Option<String>) -> Result<()> {
     let config = Config::load()?;
@@ -19,49 +20,17 @@ pub fn run(subcollection: Option<String>, tag: Option<String>) -> Result<()> {
     let mut items = cache.top_level_items(collection_key.as_deref(), tag.as_deref());
 
     if items.is_empty() {
-        println!("No items found.");
+        eprintln!("No items found.");
         return Ok(());
     }
 
-    items.sort_by_key(|a| display_key(a));
+    items.sort_by_key(|item| display::display_key(item));
 
-    let tag_width = items
-        .iter()
-        .map(|i| display_key(i).len())
-        .max()
-        .unwrap_or(4)
-        .max(4);
-
-    println!(
-        "{:<width$}  {:<6}  {:<20}  TITLE",
-        "TAG",
-        "YEAR",
-        "AUTHOR",
-        width = tag_width
-    );
-    for item in &items {
-        let year: String = item.date().chars().take(4).collect();
-        println!(
-            "{:<width$}  {:<6}  {:<20}  {}",
-            display_key(item),
-            year,
-            truncate(&item.creator_summary(), 20),
-            item.title(),
-            width = tag_width
-        );
+    if display::stdout_is_terminal() {
+        display::print_table(&items);
+    } else {
+        display::print_keys(&items);
     }
 
     Ok(())
-}
-
-fn display_key(item: &ApiItem) -> String {
-    item.citation_key().unwrap_or_else(|| item.key.clone())
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        s.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
-    }
 }

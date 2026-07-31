@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use crate::cache::Cache;
 use crate::config::Config;
+use crate::display;
 use crate::sync;
 use crate::zotero_api::{ApiItem, ZoteroClient};
 
@@ -37,16 +38,15 @@ pub fn run(query: &str, subcollection: Option<String>, tag: Option<String>) -> R
         return Ok(());
     }
 
-    items.sort_by_key(|a| display_key(a));
-    for item in items {
-        println!("{}", display_key(item));
+    items.sort_by_key(|item| display::display_key(item));
+
+    if display::stdout_is_terminal() {
+        display::print_table(&items);
+    } else {
+        display::print_keys(&items);
     }
 
     Ok(())
-}
-
-fn display_key(item: &ApiItem) -> String {
-    item.citation_key().unwrap_or_else(|| item.key.clone())
 }
 
 /// All the free-text-searchable fields on an item, joined and lowercased.

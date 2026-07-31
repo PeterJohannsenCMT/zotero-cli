@@ -2,6 +2,7 @@ mod cache;
 mod commands;
 mod config;
 mod crossref;
+mod display;
 mod storage;
 mod sync;
 mod tagging;

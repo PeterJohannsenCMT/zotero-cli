@@ -47,10 +47,24 @@ zotero open Smith2020                # open the PDF for the item tagged Smith202
                                       # (falls back to the item's URL/DOI if no PDF)
 
 zotero edit Smith2020                # edit metadata in $EDITOR, saved back on exit
+
+zotero search majorana | zotero open   # open every matching PDF
+zotero search majorana | zotero edit   # walk through editing every match
 ```
 
 Items can be referenced by their `AuthorYear` tag (see below) or by their raw
 8-character Zotero item key.
+
+`zotero open` and `zotero edit` also accept identifiers piped in on stdin
+(one per line) instead of a command-line argument — so you can pipe
+`zotero search`/`zotero list` straight into them. Each identifier is
+processed in turn; a failure on one doesn't stop the rest.
+
+`zotero list` and `zotero search` print the full TAG/YEAR/AUTHOR/TITLE table
+when run interactively, but switch to printing just the bare keys (one per
+line, no header) when their output isn't a terminal — e.g. when piped into
+another command — so they compose directly with `xargs`, `zotero open`,
+`zotero edit`, etc. without needing extra flags.
 
 ## AuthorYear tags
 
