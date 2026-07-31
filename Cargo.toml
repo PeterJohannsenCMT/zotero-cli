@@ -1,0 +1,25 @@
+[package]
+name = "zotero"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zotero"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+dirs = "5"
+toml = "0.8"
+open = "5"
+urlencoding = "2"
+chrono = "0.4"
+deunicode = "1"
+terminal_size = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
