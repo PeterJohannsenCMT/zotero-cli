@@ -47,6 +47,10 @@ zotero list --tag=Smith2020          # filter by tag
 
 zotero search majorana               # print matching keys, one per line
 zotero search "spin qubit"           # multi-word: matches items containing all words
+zotero search --author claeys        # only match against author/creator names
+zotero search --title qubit          # only match against the title
+zotero search --key richardson       # only match against the citation key
+zotero search --author claeys --key 2017   # combine flags (AND'ed together)
 zotero search majorana | xargs -I{} zotero open {}   # pipe into open/edit/etc.
 
 zotero collections list              # list all subcollections as an indented tree

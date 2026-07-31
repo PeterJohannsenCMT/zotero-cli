@@ -34,7 +34,16 @@ enum Commands {
     /// into `zotero open`/`zotero edit`/etc.)
     Search {
         /// Free-text query, matched against title, authors, tags, abstract, etc.
-        query: String,
+        query: Option<String>,
+        /// Only match against the author/creator names
+        #[arg(long)]
+        author: Option<String>,
+        /// Only match against the title
+        #[arg(long)]
+        title: Option<String>,
+        /// Only match against the citation key (or raw item key)
+        #[arg(long)]
+        key: Option<String>,
         /// Only search items in this subcollection
         #[arg(long)]
         subcollection: Option<String>,
@@ -121,9 +130,19 @@ fn main() {
         Commands::List { subcollection, tag } => commands::list::run(subcollection, tag),
         Commands::Search {
             query,
+            author,
+            title,
+            key,
             subcollection,
             tag,
-        } => commands::search::run(&query, subcollection, tag),
+        } => commands::search::run(
+            query.as_deref(),
+            author.as_deref(),
+            title.as_deref(),
+            key.as_deref(),
+            subcollection,
+            tag,
+        ),
         Commands::Collections { command } => match command {
             CollectionsCommand::List => commands::collections::list(),
             CollectionsCommand::Search { query } => commands::collections::search(&query),
