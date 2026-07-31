@@ -1,4 +1,5 @@
 pub mod add;
+pub mod completions;
 pub mod config_cmd;
 pub mod edit;
 pub mod list;

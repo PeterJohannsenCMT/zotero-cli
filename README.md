@@ -87,6 +87,31 @@ matches the item by from then on.
 4-digit year (with an optional letter suffix) and show/match on it in
 preference to the raw item key.
 
+## Shell completion (zsh)
+
+`zotero completions zsh` prints a completion script that gives `zotero open`
+and `zotero edit` tab-completion of your actual paper keys (it shells out to
+`zotero list` at completion time, which is instant once the cache is warm —
+see below).
+
+```sh
+mkdir -p ~/.zsh/completions
+zotero completions zsh > ~/.zsh/completions/_zotero
+```
+
+Then, in `~/.zshrc`, make sure that directory is in `fpath` *before*
+`compinit` runs:
+
+```sh
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit
+compinit
+```
+
+Open a new shell (or `rm -f ~/.zcompdump*; compinit` in your current one, since
+`compinit` caches what it found) and `zotero open <TAB>` / `zotero edit <TAB>`
+will suggest matching paper keys.
+
 ## Local cache
 
 To avoid re-fetching your whole library on every command, `zotero` keeps a

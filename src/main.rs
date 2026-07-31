@@ -10,6 +10,8 @@ mod zotero_api;
 
 use clap::{Parser, Subcommand};
 
+use commands::completions::Shell;
+
 #[derive(Parser)]
 #[command(name = "zotero", about = "A CLI for your Zotero library", version)]
 struct Cli {
@@ -59,6 +61,12 @@ enum Commands {
     },
     /// Configure your Zotero API credentials and data directory
     Config,
+    /// Print a shell completion script (with dynamic paper-key suggestions
+    /// for `open`/`edit`)
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() {
@@ -84,6 +92,7 @@ fn main() {
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
         Commands::Config => commands::config_cmd::run(),
+        Commands::Completions { shell } => commands::completions::run(shell),
     };
 
     if let Err(err) = result {
