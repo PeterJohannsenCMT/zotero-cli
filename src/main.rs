@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod crossref;
 mod display;
+mod editable_item;
 mod keywords;
 mod storage;
 mod sync;
@@ -63,10 +64,19 @@ enum Commands {
         #[command(subcommand)]
         command: CollectionsCommand,
     },
-    /// Add an item to your library from a DOI
+    /// Add an item to your library from a DOI, or enter one by hand
     Add {
-        /// The DOI to look up (e.g. 10.1000/xyz123)
-        doi: String,
+        /// The DOI to look up (e.g. 10.1000/xyz123). Omit and pass --manual
+        /// for items CrossRef doesn't have (books, webpages, datasets, ...).
+        doi: Option<String>,
+        /// Skip the CrossRef lookup and enter the item's metadata by hand in
+        /// $EDITOR
+        #[arg(long)]
+        manual: bool,
+        /// Zotero item type to create in --manual mode, e.g. book,
+        /// bookSection, webpage, report, thesis, dataset, conferencePaper
+        #[arg(long, default_value = "journalArticle")]
+        r#type: String,
     },
     /// Open an item's PDF (or its URL/DOI if no PDF is attached)
     Open {
@@ -93,6 +103,8 @@ enum Commands {
         #[arg(long)]
         tag: Option<String>,
     },
+    /// Force a sync with the Zotero API, ignoring the freshness window
+    Sync,
     /// Configure your Zotero API credentials and data directory
     Config,
     /// Print a shell completion script (with dynamic paper-key suggestions
@@ -161,7 +173,22 @@ fn main() {
                 commands::collections::edit(&name, &new_name)
             }
         },
-        Commands::Add { doi } => commands::add::run(&doi),
+        Commands::Add {
+            doi,
+            manual,
+            r#type,
+        } => {
+            if manual {
+                commands::add::run_manual(&r#type)
+            } else {
+                match doi {
+                    Some(doi) => commands::add::run(&doi),
+                    None => Err(anyhow::anyhow!(
+                        "either pass a DOI to look up, or --manual to enter an item by hand"
+                    )),
+                }
+            }
+        }
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
         Commands::Export {
@@ -169,6 +196,7 @@ fn main() {
             subcollection,
             tag,
         } => commands::export::run(identifiers, subcollection, tag),
+        Commands::Sync => commands::sync::run(),
         Commands::Config => commands::config_cmd::run(),
         Commands::Completions { shell } => commands::completions::run(shell),
     };

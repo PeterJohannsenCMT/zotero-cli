@@ -37,6 +37,14 @@ pub fn sync_library(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
     Ok(())
 }
 
+/// Like [`sync_library`], but ignores the freshness window and always talks
+/// to the server. For `zotero sync`, where the user is explicitly asking to
+/// pull in changes made elsewhere (e.g. the Zotero desktop app) right now.
+pub fn force_sync(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
+    cache.last_synced_at = 0;
+    sync_library(client, cache)
+}
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
