@@ -64,10 +64,10 @@ pub fn run(
         };
 
         let citekey = item.citation_key().unwrap_or_else(|| {
-            eprintln!(
-                "warning: '{}' has no AuthorYear tag; using its raw key as the citekey",
-                item.key
-            );
+            // eprintln!(
+            //     "warning: '{}' has no AuthorYear tag; using its raw key as the citekey",
+            //     item.key
+            // );
             item.key.clone()
         });
 
