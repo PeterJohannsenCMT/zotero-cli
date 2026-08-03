@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 use crate::cache::Cache;
 use crate::config::Config;
@@ -71,6 +71,76 @@ pub fn edit(name: &str, new_name: &str) -> Result<()> {
     cache.save()?;
 
     println!("Renamed '{}' to '{}'.", name, new_name);
+    Ok(())
+}
+
+pub fn move_item(identifier: &str, collection: &str) -> Result<()> {
+    set_item_collections(identifier, collection, CollectionEdit::Replace)
+}
+
+pub fn add_item(identifier: &str, collection: &str) -> Result<()> {
+    set_item_collections(identifier, collection, CollectionEdit::Add)
+}
+
+pub fn remove_item(identifier: &str, collection: &str) -> Result<()> {
+    set_item_collections(identifier, collection, CollectionEdit::Remove)
+}
+
+enum CollectionEdit {
+    Replace,
+    Add,
+    Remove,
+}
+
+fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit) -> Result<()> {
+    let config = Config::load()?;
+    let client = ZoteroClient::from_config(&config)?;
+    let mut cache = Cache::load()?;
+    sync::sync_library(&client, &mut cache)?;
+
+    let collection_key = cache.resolve_collection_by_name(collection)?;
+    let item = cache
+        .find_by_identifier(identifier)
+        .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
+        .clone();
+
+    let current = item
+        .data
+        .get("collections")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut keys: Vec<String> = current
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+
+    match edit {
+        CollectionEdit::Replace => keys = vec![collection_key.clone()],
+        CollectionEdit::Add => {
+            if !keys.iter().any(|key| key == &collection_key) {
+                keys.push(collection_key.clone());
+            }
+        }
+        CollectionEdit::Remove => keys.retain(|key| key != &collection_key),
+    }
+
+    let patch = serde_json::json!({ "collections": keys });
+    let new_version = client.update_item(&item.key, item.version, patch.clone())?;
+
+    if let Some(cached) = cache.items.get_mut(&item.key)
+        && let Some(obj) = cached.data.as_object_mut()
+    {
+        obj.insert("collections".to_string(), patch["collections"].clone());
+        cached.version = new_version;
+    }
+    cache.save()?;
+
+    match edit {
+        CollectionEdit::Replace => println!("Moved '{}' to '{}'.", item.title(), collection),
+        CollectionEdit::Add => println!("Added '{}' to '{}'.", item.title(), collection),
+        CollectionEdit::Remove => println!("Removed '{}' from '{}'.", item.title(), collection),
+    }
     Ok(())
 }
 

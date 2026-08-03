@@ -1,8 +1,10 @@
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::blocking::{Client as HttpClient, Response};
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::Path;
+use std::time::UNIX_EPOCH;
 
 use crate::config::Config;
 use crate::tagging;
@@ -136,6 +138,7 @@ pub struct ZoteroClient {
 fn version_header(resp: &Response) -> Option<i64> {
     resp.headers()
         .get("last-modified-version")
+        .or_else(|| resp.headers().get("zotero-library-version"))
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<i64>().ok())
 }
@@ -220,6 +223,18 @@ impl ZoteroClient {
         resp.json().context("parsing collection response")
     }
 
+    /// Fetch a single item's current state directly from the server.
+    pub fn get_item(&self, key: &str) -> Result<ApiItem> {
+        let url = format!("{}/items/{}?format=json", self.base_url, key);
+        let resp = self.http.get(&url).send().context("request failed")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            bail!("fetching item failed: {} {}", status, body);
+        }
+        resp.json().context("parsing item response")
+    }
+
     /// Keys of items/collections/tags permanently deleted since `since`.
     pub fn deleted_since(&self, since: i64) -> Result<Value> {
         let url = format!("{}/deleted?since={}", self.base_url, since);
@@ -240,6 +255,21 @@ impl ZoteroClient {
             bail!("failed to fetch item template for type '{}'", item_type);
         }
         resp.json().context("parsing item template")
+    }
+
+    pub fn attachment_template(&self, link_mode: &str) -> Result<Value> {
+        let url = format!(
+            "https://api.zotero.org/items/new?itemType=attachment&linkMode={}",
+            urlencoding::encode(link_mode)
+        );
+        let resp = self.http.get(&url).send().context("request failed")?;
+        if !resp.status().is_success() {
+            bail!(
+                "failed to fetch attachment template for linkMode '{}'",
+                link_mode
+            );
+        }
+        resp.json().context("parsing attachment template")
     }
 
     /// Create one item; returns the created ApiItem (with key/version).
@@ -263,6 +293,125 @@ impl ZoteroClient {
             .and_then(|v| v.get("0"))
             .ok_or_else(|| anyhow!("item creation did not report success: {}", text))?;
         serde_json::from_value(successful.clone()).context("parsing created item")
+    }
+
+    pub fn create_pdf_attachment(
+        &self,
+        parent_key: &str,
+        mut template: Value,
+        title: &str,
+        filename: &str,
+    ) -> Result<ApiItem> {
+        template["parentItem"] = Value::String(parent_key.to_string());
+        template["title"] = Value::String(title.to_string());
+        template["contentType"] = Value::String("application/pdf".to_string());
+        template["filename"] = Value::String(filename.to_string());
+        self.create_item(template)
+    }
+
+    /// Upload a file for a just-created attachment. Returns the updated
+    /// attachment/library version when Zotero reports one. If Zotero already
+    /// has the file bytes, it associates them during authorization and no
+    /// upload/register step is needed.
+    pub fn upload_new_attachment_file(
+        &self,
+        attachment_key: &str,
+        path: &Path,
+        filename: &str,
+    ) -> Result<Option<i64>> {
+        let bytes =
+            std::fs::read(path).with_context(|| format!("reading PDF {}", path.display()))?;
+        let metadata =
+            std::fs::metadata(path).with_context(|| format!("stat PDF {}", path.display()))?;
+        let md5 = md5_hex(&bytes);
+        let mtime = metadata
+            .modified()
+            .context("reading PDF modification time")?
+            .duration_since(UNIX_EPOCH)
+            .context("PDF modification time is before Unix epoch")?
+            .as_millis()
+            .to_string();
+        let filesize = bytes.len().to_string();
+
+        let auth_url = format!("{}/items/{}/file", self.base_url, attachment_key);
+        let form = [
+            ("md5", md5.as_str()),
+            ("filename", filename),
+            ("filesize", filesize.as_str()),
+            ("mtime", mtime.as_str()),
+        ];
+        let resp = self
+            .http
+            .post(&auth_url)
+            .header("If-None-Match", "*")
+            .form(&form)
+            .send()
+            .context("requesting Zotero upload authorization")?;
+        let status = resp.status();
+        let text = resp.text().context("reading upload authorization body")?;
+        if !status.is_success() {
+            bail!("upload authorization failed: {} {}", status, text);
+        }
+        let auth: Value = serde_json::from_str(&text).context("parsing upload authorization")?;
+        if auth.get("exists").and_then(Value::as_i64) == Some(1) {
+            return Ok(None);
+        }
+
+        let upload_url = auth
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("upload authorization response has no url"))?;
+        let content_type = auth
+            .get("contentType")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("upload authorization response has no contentType"))?;
+        let prefix = auth
+            .get("prefix")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("upload authorization response has no prefix"))?;
+        let suffix = auth
+            .get("suffix")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("upload authorization response has no suffix"))?;
+        let upload_key = auth
+            .get("uploadKey")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("upload authorization response has no uploadKey"))?;
+
+        let mut upload_body = Vec::with_capacity(prefix.len() + bytes.len() + suffix.len());
+        upload_body.extend_from_slice(prefix.as_bytes());
+        upload_body.extend_from_slice(&bytes);
+        upload_body.extend_from_slice(suffix.as_bytes());
+
+        let upload_resp = HttpClient::new()
+            .post(upload_url)
+            .header(CONTENT_TYPE, content_type)
+            .body(upload_body)
+            .send()
+            .context("uploading PDF bytes")?;
+        let upload_status = upload_resp.status();
+        if upload_status != reqwest::StatusCode::CREATED {
+            let body = upload_resp.text().unwrap_or_default();
+            bail!("PDF upload failed: {} {}", upload_status, body);
+        }
+
+        let register_resp = self
+            .http
+            .post(&auth_url)
+            .header("If-None-Match", "*")
+            .form(&[("upload", upload_key)])
+            .send()
+            .context("registering Zotero file upload")?;
+        let register_status = register_resp.status();
+        if register_status != reqwest::StatusCode::NO_CONTENT {
+            let body = register_resp.text().unwrap_or_default();
+            bail!(
+                "registering file upload failed: {} {}",
+                register_status,
+                body
+            );
+        }
+        Ok(version_header(&register_resp))
     }
 
     /// Partially update an item. `patch` should contain only the changed
@@ -332,5 +481,99 @@ impl ZoteroClient {
             .into_iter()
             .filter_map(|v| v.get("tag").and_then(Value::as_str).map(|s| s.to_string()))
             .collect())
+    }
+}
+
+fn md5_hex(input: &[u8]) -> String {
+    let mut msg = input.to_vec();
+    let bit_len = (msg.len() as u64).wrapping_mul(8);
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_le_bytes());
+
+    let mut a0: u32 = 0x67452301;
+    let mut b0: u32 = 0xefcdab89;
+    let mut c0: u32 = 0x98badcfe;
+    let mut d0: u32 = 0x10325476;
+
+    const S: [u32; 64] = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5,
+        9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10,
+        15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    ];
+    const K: [u32; 64] = [
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613,
+        0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193,
+        0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d,
+        0x02441453, 0xd8a1e681, 0xe7d3fbc8, 0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+        0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122,
+        0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa,
+        0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665, 0xf4292244,
+        0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb,
+        0xeb86d391,
+    ];
+
+    for chunk in msg.chunks_exact(64) {
+        let mut m = [0u32; 16];
+        for (i, word) in m.iter_mut().enumerate() {
+            let j = i * 4;
+            *word = u32::from_le_bytes([chunk[j], chunk[j + 1], chunk[j + 2], chunk[j + 3]]);
+        }
+
+        let mut a = a0;
+        let mut b = b0;
+        let mut c = c0;
+        let mut d = d0;
+
+        for i in 0..64 {
+            let (f, g) = if i < 16 {
+                ((b & c) | (!b & d), i)
+            } else if i < 32 {
+                ((d & b) | (!d & c), (5 * i + 1) % 16)
+            } else if i < 48 {
+                (b ^ c ^ d, (3 * i + 5) % 16)
+            } else {
+                (c ^ (b | !d), (7 * i) % 16)
+            };
+            let tmp = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(
+                a.wrapping_add(f)
+                    .wrapping_add(K[i])
+                    .wrapping_add(m[g])
+                    .rotate_left(S[i]),
+            );
+            a = tmp;
+        }
+
+        a0 = a0.wrapping_add(a);
+        b0 = b0.wrapping_add(b);
+        c0 = c0.wrapping_add(c);
+        d0 = d0.wrapping_add(d);
+    }
+
+    let mut digest = Vec::with_capacity(16);
+    digest.extend_from_slice(&a0.to_le_bytes());
+    digest.extend_from_slice(&b0.to_le_bytes());
+    digest.extend_from_slice(&c0.to_le_bytes());
+    digest.extend_from_slice(&d0.to_le_bytes());
+    digest.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::md5_hex;
+
+    #[test]
+    fn md5_hex_matches_known_answer() {
+        assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(
+            md5_hex(b"The quick brown fox jumps over the lazy dog"),
+            "9e107d9d372bb6826bd81d3542a419d6"
+        );
     }
 }

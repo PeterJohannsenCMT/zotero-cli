@@ -90,6 +90,13 @@ enum Commands {
         /// read one per line from stdin (e.g. piped from `zotero search`).
         identifier: Option<String>,
     },
+    /// Attach a PDF file to an item
+    AttachPdf {
+        /// AuthorYear tag or raw Zotero item key
+        identifier: String,
+        /// Path to the PDF file
+        pdf: std::path::PathBuf,
+    },
     /// Export items as BibTeX, with citekeys matching their AuthorYear tag
     Export {
         /// AuthorYear tags or raw Zotero item keys to export. If omitted,
@@ -130,6 +137,27 @@ enum CollectionsCommand {
         name: String,
         /// The subcollection's new name
         new_name: String,
+    },
+    /// Replace an item's collection membership with one subcollection
+    MoveItem {
+        /// AuthorYear tag or raw Zotero item key
+        identifier: String,
+        /// Destination subcollection name
+        collection: String,
+    },
+    /// Add an item to a subcollection, keeping existing memberships
+    AddItem {
+        /// AuthorYear tag or raw Zotero item key
+        identifier: String,
+        /// Subcollection name
+        collection: String,
+    },
+    /// Remove an item from a subcollection
+    RemoveItem {
+        /// AuthorYear tag or raw Zotero item key
+        identifier: String,
+        /// Subcollection name
+        collection: String,
     },
 }
 
@@ -172,6 +200,18 @@ fn main() {
             CollectionsCommand::Edit { name, new_name } => {
                 commands::collections::edit(&name, &new_name)
             }
+            CollectionsCommand::MoveItem {
+                identifier,
+                collection,
+            } => commands::collections::move_item(&identifier, &collection),
+            CollectionsCommand::AddItem {
+                identifier,
+                collection,
+            } => commands::collections::add_item(&identifier, &collection),
+            CollectionsCommand::RemoveItem {
+                identifier,
+                collection,
+            } => commands::collections::remove_item(&identifier, &collection),
         },
         Commands::Add {
             doi,
@@ -191,6 +231,7 @@ fn main() {
         }
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
+        Commands::AttachPdf { identifier, pdf } => commands::attach::pdf(&identifier, &pdf),
         Commands::Export {
             identifiers,
             subcollection,

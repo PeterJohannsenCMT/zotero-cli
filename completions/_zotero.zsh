@@ -1,12 +1,19 @@
 #compdef zotero
 
-# zsh completion for zotero. `open`/`edit` suggest paper keys by shelling out
-# to `zotero list`, which is instant once the local cache is warm.
+# zsh completion for zotero. Paper/collection completions shell out to
+# `zotero list`/`zotero collections list`, which are instant once the local
+# cache is warm.
 
 _zotero_paper_keys() {
     local -a keys
     keys=(${(f)"$(zotero list 2>/dev/null)"})
     _describe -t paper-keys 'paper key' keys
+}
+
+_zotero_collection_names() {
+    local -a collections
+    collections=(${(f)"$(zotero collections list 2>/dev/null | sed 's/^[[:space:]]*//')"})
+    _describe -t collection-names 'collection' collections
 }
 
 _zotero() {
@@ -27,7 +34,9 @@ _zotero() {
                 'add:Add an item to your library from a DOI'
                 'open:Open an item'\''s PDF (or its URL/DOI)'
                 'edit:Edit an item'\''s metadata in \$EDITOR'
+                'attach-pdf:Attach a PDF file to an item'
                 'export:Export items as BibTeX'
+                'sync:Force a sync with the Zotero API'
                 'config:Configure your Zotero API credentials'
                 'completions:Print a shell completion script'
             )
@@ -40,12 +49,23 @@ _zotero() {
                     ;;
                 list|search)
                     _arguments \
-                        '--subcollection=[Only items in this subcollection]:name:' \
+                        '--subcollection=[Only items in this subcollection]:collection:_zotero_collection_names' \
                         '--tag=[Only items with this tag]:tag:_zotero_paper_keys'
+                    ;;
+                add)
+                    _arguments \
+                        '--manual[Enter item metadata by hand in $EDITOR]' \
+                        '--type=[Zotero item type for --manual mode]:item type:(journalArticle book bookSection webpage report thesis dataset conferencePaper)' \
+                        '1:DOI:'
+                    ;;
+                attach-pdf)
+                    _arguments \
+                        '1:paper key:_zotero_paper_keys' \
+                        '2:PDF file:_files -g "*.pdf(-.)"'
                     ;;
                 export)
                     _arguments \
-                        '--subcollection=[Export items in this subcollection]:name:' \
+                        '--subcollection=[Export items in this subcollection]:collection:_zotero_collection_names' \
                         '--tag=[Export items with this tag]:tag:_zotero_paper_keys' \
                         '*:paper key:_zotero_paper_keys'
                     ;;
@@ -55,8 +75,29 @@ _zotero() {
                         'list:List all subcollections as an indented tree'
                         'search:Search subcollections by name'
                         'edit:Rename a subcollection'
+                        'move-item:Replace an item'\''s collection membership with one subcollection'
+                        'add-item:Add an item to a subcollection, keeping existing memberships'
+                        'remove-item:Remove an item from a subcollection'
                     )
-                    _describe 'collections command' collections_subcmds
+                    if (( CURRENT == 2 )); then
+                        _describe 'collections command' collections_subcmds
+                    else
+                        case $line[2] in
+                            search)
+                                _arguments '1:query:'
+                                ;;
+                            edit)
+                                _arguments \
+                                    '1:collection:_zotero_collection_names' \
+                                    '2:new name:'
+                                ;;
+                            move-item|add-item|remove-item)
+                                _arguments \
+                                    '1:paper key:_zotero_paper_keys' \
+                                    '2:collection:_zotero_collection_names'
+                                ;;
+                        esac
+                    fi
                     ;;
                 completions)
                     _arguments '1:shell:(zsh)'
