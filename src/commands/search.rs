@@ -39,9 +39,10 @@ pub fn run(
     }
 
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
     let keyword_store = Keywords::load()?;
 
     let collection_key = match &subcollection {
@@ -66,10 +67,8 @@ pub fn run(
     .filter_map(|(q, f)| q.map(|q| (q, f)))
     .collect();
 
-    let terms: Vec<(Vec<String>, FieldFn)> = filters
-        .into_iter()
-        .map(|(q, f)| (terms_of(q), f))
-        .collect();
+    let terms: Vec<(Vec<String>, FieldFn)> =
+        filters.into_iter().map(|(q, f)| (terms_of(q), f)).collect();
 
     let mut items = cache.top_level_items(collection_key.as_deref(), tag.as_deref());
     items.retain(|it| {

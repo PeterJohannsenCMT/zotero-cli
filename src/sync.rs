@@ -23,15 +23,19 @@ const FRESHNESS_WINDOW_SECS: u64 = 60;
 /// user-editable tag rather than something recomputed every time. Skips all
 /// of this (and any network access at all) if the cache was synced within
 /// `FRESHNESS_WINDOW_SECS`.
-pub fn sync_library(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
+pub fn sync_library(
+    read_client: &ZoteroClient,
+    write_client: &ZoteroClient,
+    cache: &mut Cache,
+) -> Result<()> {
     if now().saturating_sub(cache.last_synced_at) < FRESHNESS_WINDOW_SECS {
         return Ok(());
     }
 
-    pull_changes(client, cache)?;
-    dedupe_citation_keys(client, cache)?;
-    normalize_citation_keys(client, cache)?;
-    backfill_citation_keys(client, cache)?;
+    pull_changes(read_client, cache)?;
+    dedupe_citation_keys(write_client, cache)?;
+    normalize_citation_keys(write_client, cache)?;
+    backfill_citation_keys(write_client, cache)?;
     cache.last_synced_at = now();
     cache.save()?;
     Ok(())
@@ -40,9 +44,13 @@ pub fn sync_library(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
 /// Like [`sync_library`], but ignores the freshness window and always talks
 /// to the server. For `zotero sync`, where the user is explicitly asking to
 /// pull in changes made elsewhere (e.g. the Zotero desktop app) right now.
-pub fn force_sync(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
+pub fn force_sync(
+    read_client: &ZoteroClient,
+    write_client: &ZoteroClient,
+    cache: &mut Cache,
+) -> Result<()> {
     cache.last_synced_at = 0;
-    sync_library(client, cache)
+    sync_library(read_client, write_client, cache)
 }
 
 fn now() -> u64 {

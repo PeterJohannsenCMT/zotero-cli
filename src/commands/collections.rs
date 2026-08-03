@@ -46,18 +46,19 @@ pub fn search(query: &str) -> Result<()> {
 /// Rename the subcollection called `name` to `new_name`.
 pub fn edit(name: &str, new_name: &str) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let key = cache.resolve_collection_by_name(name)?;
     // Fetch the live version rather than trusting the cache: it may be
     // stale (e.g. edited from another Zotero client since our last sync),
     // and a stale version makes the conditional update below fail with 412.
-    let version = client.get_collection(&key)?.version;
+    let version = write_client.get_collection(&key)?.version;
 
     let patch = serde_json::json!({ "name": new_name });
-    let new_version = client.update_collection(&key, version, patch)?;
+    let new_version = write_client.update_collection(&key, version, patch)?;
 
     if let Some(collection) = cache.collections.get_mut(&key)
         && let Some(obj) = collection.data.as_object_mut()
@@ -94,9 +95,10 @@ enum CollectionEdit {
 
 fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let collection_key = cache.resolve_collection_by_name(collection)?;
     let item = cache
@@ -126,7 +128,7 @@ fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit
     }
 
     let patch = serde_json::json!({ "collections": keys });
-    let new_version = client.update_item(&item.key, item.version, patch.clone())?;
+    let new_version = write_client.update_item(&item.key, item.version, patch.clone())?;
 
     if let Some(cached) = cache.items.get_mut(&item.key)
         && let Some(obj) = cached.data.as_object_mut()
@@ -146,9 +148,10 @@ fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit
 
 fn load_synced_cache() -> Result<Cache> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
     Ok(cache)
 }
 

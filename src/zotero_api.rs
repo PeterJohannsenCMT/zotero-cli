@@ -10,6 +10,8 @@ use crate::config::Config;
 use crate::tagging;
 
 const PAGE_LIMIT: usize = 100;
+const WEB_API_ROOT: &str = "https://api.zotero.org";
+const LOCAL_API_ROOT: &str = "http://localhost:23119/api";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiItem {
@@ -132,7 +134,16 @@ impl Collection {
 
 pub struct ZoteroClient {
     http: HttpClient,
+    api_root: String,
     base_url: String,
+    source: ApiSource,
+    fallback: Option<Box<ZoteroClient>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiSource {
+    Local,
+    Web,
 }
 
 fn version_header(resp: &Response) -> Option<i64> {
@@ -144,7 +155,7 @@ fn version_header(resp: &Response) -> Option<i64> {
 }
 
 impl ZoteroClient {
-    pub fn from_config(config: &Config) -> Result<Self> {
+    pub fn web(config: &Config) -> Result<Self> {
         let mut headers = HeaderMap::new();
         headers.insert("Zotero-API-Version", HeaderValue::from_static("3"));
         headers.insert(
@@ -158,22 +169,80 @@ impl ZoteroClient {
             .context("building HTTP client")?;
         Ok(Self {
             http,
+            api_root: WEB_API_ROOT.to_string(),
             base_url: config.library_base_url(),
+            source: ApiSource::Web,
+            fallback: None,
         })
+    }
+
+    pub fn local(config: &Config) -> Result<Self> {
+        let mut headers = HeaderMap::new();
+        headers.insert("Zotero-API-Version", HeaderValue::from_static("3"));
+        let http = HttpClient::builder()
+            .default_headers(headers)
+            .user_agent("zotero-cli/0.1")
+            .build()
+            .context("building HTTP client")?;
+        Ok(Self {
+            http,
+            api_root: LOCAL_API_ROOT.to_string(),
+            base_url: config.local_library_base_url(),
+            source: ApiSource::Local,
+            fallback: None,
+        })
+    }
+
+    /// Prefer Zotero Desktop's local, read-only API, but fall back to the Web
+    /// API if the local server is unavailable or disabled.
+    pub fn read_preferred(config: &Config) -> Result<Self> {
+        let mut local = Self::local(config)?;
+        local.fallback = Some(Box::new(Self::web(config)?));
+        Ok(local)
+    }
+
+    fn is_local(&self) -> bool {
+        self.source == ApiSource::Local
+    }
+
+    fn with_read_fallback<T>(
+        &self,
+        action: impl Fn(&ZoteroClient) -> Result<T>,
+        fallback_context: &str,
+    ) -> Result<T> {
+        match action(self) {
+            Ok(value) => Ok(value),
+            Err(err) if self.is_local() => {
+                if let Some(fallback) = &self.fallback {
+                    action(fallback)
+                        .with_context(|| format!("falling back to Zotero Web API after local API failed while {fallback_context}: {err:#}"))
+                } else {
+                    Err(err)
+                }
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// GETs every page of `path`, returning the collected JSON values plus the
     /// library version reported on the first response (if any).
     fn paginated_get(&self, path: &str, extra_query: &str) -> Result<(Vec<Value>, Option<i64>)> {
+        self.with_read_fallback(
+            |client| client.paginated_get_once(path, extra_query),
+            &format!("GET {}", path),
+        )
+    }
+
+    fn paginated_get_once(
+        &self,
+        path: &str,
+        extra_query: &str,
+    ) -> Result<(Vec<Value>, Option<i64>)> {
         let mut results = Vec::new();
         let mut start = 0usize;
         let mut version = None;
         loop {
-            let sep = if extra_query.is_empty() { "" } else { "&" };
-            let url = format!(
-                "{}{}?format=json&limit={}&start={}{}{}",
-                self.base_url, path, PAGE_LIMIT, start, sep, extra_query
-            );
+            let url = self.paginated_url(path, extra_query, start);
             let resp = self.http.get(&url).send().context("request failed")?;
             let status = resp.status();
             if !status.is_success() {
@@ -186,12 +255,24 @@ impl ZoteroClient {
             let batch: Vec<Value> = resp.json().context("parsing JSON response")?;
             let got = batch.len();
             results.extend(batch);
-            if got < PAGE_LIMIT {
+            if self.is_local() || got < PAGE_LIMIT {
                 break;
             }
             start += PAGE_LIMIT;
         }
         Ok((results, version))
+    }
+
+    fn paginated_url(&self, path: &str, extra_query: &str, start: usize) -> String {
+        let mut params = vec!["format=json".to_string()];
+        if !self.is_local() {
+            params.push(format!("limit={}", PAGE_LIMIT));
+            params.push(format!("start={}", start));
+        }
+        if !extra_query.is_empty() {
+            params.push(extra_query.to_string());
+        }
+        format!("{}{}?{}", self.base_url, path, params.join("&"))
     }
 
     /// Items (of every type, including attachments/notes) created or changed
@@ -213,6 +294,13 @@ impl ZoteroClient {
     /// (bypassing the local cache), so callers can get its up-to-date
     /// version before a conditional update.
     pub fn get_collection(&self, key: &str) -> Result<Collection> {
+        self.with_read_fallback(
+            |client| client.get_collection_once(key),
+            "fetching a collection",
+        )
+    }
+
+    fn get_collection_once(&self, key: &str) -> Result<Collection> {
         let url = format!("{}/collections/{}?format=json", self.base_url, key);
         let resp = self.http.get(&url).send().context("request failed")?;
         let status = resp.status();
@@ -225,6 +313,10 @@ impl ZoteroClient {
 
     /// Fetch a single item's current state directly from the server.
     pub fn get_item(&self, key: &str) -> Result<ApiItem> {
+        self.with_read_fallback(|client| client.get_item_once(key), "fetching an item")
+    }
+
+    fn get_item_once(&self, key: &str) -> Result<ApiItem> {
         let url = format!("{}/items/{}?format=json", self.base_url, key);
         let resp = self.http.get(&url).send().context("request failed")?;
         let status = resp.status();
@@ -237,6 +329,13 @@ impl ZoteroClient {
 
     /// Keys of items/collections/tags permanently deleted since `since`.
     pub fn deleted_since(&self, since: i64) -> Result<Value> {
+        self.with_read_fallback(
+            |client| client.deleted_since_once(since),
+            "fetching deleted keys",
+        )
+    }
+
+    fn deleted_since_once(&self, since: i64) -> Result<Value> {
         let url = format!("{}/deleted?since={}", self.base_url, since);
         let resp = self.http.get(&url).send().context("request failed")?;
         if !resp.status().is_success() {
@@ -246,8 +345,16 @@ impl ZoteroClient {
     }
 
     pub fn item_template(&self, item_type: &str) -> Result<Value> {
+        self.with_read_fallback(
+            |client| client.item_template_once(item_type),
+            "fetching an item template",
+        )
+    }
+
+    fn item_template_once(&self, item_type: &str) -> Result<Value> {
         let url = format!(
-            "https://api.zotero.org/items/new?itemType={}",
+            "{}/items/new?itemType={}",
+            self.api_root,
             urlencoding::encode(item_type)
         );
         let resp = self.http.get(&url).send().context("request failed")?;
@@ -258,8 +365,16 @@ impl ZoteroClient {
     }
 
     pub fn attachment_template(&self, link_mode: &str) -> Result<Value> {
+        self.with_read_fallback(
+            |client| client.attachment_template_once(link_mode),
+            "fetching an attachment template",
+        )
+    }
+
+    fn attachment_template_once(&self, link_mode: &str) -> Result<Value> {
         let url = format!(
-            "https://api.zotero.org/items/new?itemType=attachment&linkMode={}",
+            "{}/items/new?itemType=attachment&linkMode={}",
+            self.api_root,
             urlencoding::encode(link_mode)
         );
         let resp = self.http.get(&url).send().context("request failed")?;
@@ -458,6 +573,13 @@ impl ZoteroClient {
     /// callers that want the item's AuthorYear tag as the citekey need to
     /// rewrite it themselves.
     pub fn item_bibtex(&self, key: &str) -> Result<String> {
+        self.with_read_fallback(
+            |client| client.item_bibtex_once(key),
+            "fetching item BibTeX",
+        )
+    }
+
+    fn item_bibtex_once(&self, key: &str) -> Result<String> {
         let url = format!("{}/items/{}?format=bibtex", self.base_url, key);
         let resp = self.http.get(&url).send().context("request failed")?;
         let status = resp.status();
@@ -566,7 +688,17 @@ fn md5_hex(input: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::md5_hex;
+    use super::{ZoteroClient, md5_hex};
+    use crate::config::Config;
+
+    fn test_config() -> Config {
+        Config {
+            library_type: "user".to_string(),
+            library_id: "12345".to_string(),
+            api_key: "abc".to_string(),
+            zotero_data_dir: None,
+        }
+    }
 
     #[test]
     fn md5_hex_matches_known_answer() {
@@ -574,6 +706,36 @@ mod tests {
         assert_eq!(
             md5_hex(b"The quick brown fox jumps over the lazy dog"),
             "9e107d9d372bb6826bd81d3542a419d6"
+        );
+    }
+
+    #[test]
+    fn local_and_web_clients_use_expected_library_urls() {
+        let config = test_config();
+        let local = ZoteroClient::local(&config).unwrap();
+        let web = ZoteroClient::web(&config).unwrap();
+
+        assert_eq!(local.base_url, "http://localhost:23119/api/users/12345");
+        assert_eq!(web.base_url, "https://api.zotero.org/users/12345");
+    }
+
+    #[test]
+    fn web_paginated_urls_include_limit_and_start() {
+        let client = ZoteroClient::web(&test_config()).unwrap();
+
+        assert_eq!(
+            client.paginated_url("/items", "since=10", 100),
+            "https://api.zotero.org/users/12345/items?format=json&limit=100&start=100&since=10"
+        );
+    }
+
+    #[test]
+    fn local_paginated_urls_omit_limit_and_start() {
+        let client = ZoteroClient::local(&test_config()).unwrap();
+
+        assert_eq!(
+            client.paginated_url("/items", "since=10", 100),
+            "http://localhost:23119/api/users/12345/items?format=json&since=10"
         );
     }
 }

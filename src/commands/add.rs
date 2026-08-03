@@ -11,22 +11,23 @@ use crate::zotero_api::{ApiItem, ZoteroClient};
 
 pub fn run(doi: &str) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
 
     println!("Looking up {} on CrossRef...", doi);
     let work = crossref::fetch_work(doi)?;
 
     let item_type = crossref::item_type_for_work(&work);
-    let template = client.item_template(item_type)?;
+    let template = read_client.item_template(item_type)?;
     let mut item = crossref::fill_item_template(template, &work);
 
     let creators = crossref::creators(&work);
     let year = crossref::best_year(&work);
     let base = tagging::base_tag(&creators, year)?;
-    let tag = tagging::unique_tag(&client, &base)?;
+    let tag = tagging::unique_tag(&read_client, &base)?;
     item["tags"] = serde_json::json!([{ "tag": tag }]);
 
-    let created = client.create_item(item)?;
+    let created = write_client.create_item(item)?;
     println!(
         "Added '{}' as [{}] (key {})",
         created.title(),
@@ -49,9 +50,10 @@ pub fn run(doi: &str) -> Result<()> {
 /// metadata form (the same field set `zotero edit` uses) in `$EDITOR`.
 pub fn run_manual(item_type: &str) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
 
-    let template = client
+    let template = read_client
         .item_template(item_type)
         .with_context(|| format!("fetching item template for type '{}'", item_type))?;
 
@@ -85,9 +87,9 @@ pub fn run_manual(item_type: &str) -> Result<()> {
     }
 
     let item = edited.fill_template(template);
-    let mut created = client.create_item(item)?;
+    let mut created = write_client.create_item(item)?;
 
-    match assign_citation_tag(&client, &mut created) {
+    match assign_citation_tag(&read_client, &write_client, &mut created) {
         Ok(Some(tag)) => println!(
             "Added '{}' as [{}] (key {})",
             created.title(),
@@ -129,11 +131,15 @@ pub fn run_manual(item_type: &str) -> Result<()> {
 /// derivation `zotero sync`'s backfill uses) and write it back to Zotero.
 /// Returns `None` (not an error) if the item doesn't have enough
 /// information yet to derive one.
-fn assign_citation_tag(client: &ZoteroClient, item: &mut ApiItem) -> Result<Option<String>> {
+fn assign_citation_tag(
+    read_client: &ZoteroClient,
+    write_client: &ZoteroClient,
+    item: &mut ApiItem,
+) -> Result<Option<String>> {
     let Some(base) = tagging::derive_base_tag_from_item(item) else {
         return Ok(None);
     };
-    let tag = tagging::unique_tag(client, &base)?;
+    let tag = tagging::unique_tag(read_client, &base)?;
 
     let mut tags = item.tags();
     tags.push(tag.clone());
@@ -141,7 +147,7 @@ fn assign_citation_tag(client: &ZoteroClient, item: &mut ApiItem) -> Result<Opti
         .iter()
         .map(|t| serde_json::json!({ "tag": t }))
         .collect();
-    let new_version = client.update_item(
+    let new_version = write_client.update_item(
         &item.key,
         item.version,
         serde_json::json!({ "tags": tags_value.clone() }),

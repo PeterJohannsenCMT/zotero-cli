@@ -22,9 +22,10 @@ pub fn pdf(identifier: &str, pdf_path: &Path) -> Result<()> {
     }
 
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let item = cache
         .find_by_identifier(identifier)
@@ -52,15 +53,16 @@ pub fn pdf(identifier: &str, pdf_path: &Path) -> Result<()> {
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(filename);
 
-    let template = client
+    let template = read_client
         .attachment_template("imported_file")
         .context("fetching PDF attachment template")?;
-    let created = client
+    let created = write_client
         .create_pdf_attachment(&item.key, template, title, filename)
         .context("creating Zotero attachment item")?;
 
-    let reported_version = client.upload_new_attachment_file(&created.key, pdf_path, filename)?;
-    let mut fresh = client.get_item(&created.key)?;
+    let reported_version =
+        write_client.upload_new_attachment_file(&created.key, pdf_path, filename)?;
+    let mut fresh = write_client.get_item(&created.key)?;
     if let Some(new_version) = reported_version {
         fresh.version = new_version;
     }

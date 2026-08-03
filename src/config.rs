@@ -52,12 +52,21 @@ impl Config {
         Ok(())
     }
 
-    /// e.g. https://api.zotero.org/users/12345
-    pub fn library_base_url(&self) -> String {
+    fn library_path(&self) -> String {
         let segment = match self.library_type.as_str() {
             "group" => "groups",
             _ => "users",
         };
-        format!("https://api.zotero.org/{}/{}", segment, self.library_id)
+        format!("{}/{}", segment, self.library_id)
+    }
+
+    /// e.g. https://api.zotero.org/users/12345
+    pub fn library_base_url(&self) -> String {
+        format!("https://api.zotero.org/{}", self.library_path())
+    }
+
+    /// e.g. http://localhost:23119/api/users/12345
+    pub fn local_library_base_url(&self) -> String {
+        format!("http://localhost:23119/api/{}", self.library_path())
     }
 }

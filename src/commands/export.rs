@@ -13,9 +13,10 @@ pub fn run(
     bibitem: bool,
 ) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let use_filters = subcollection.is_some() || tag.is_some();
     let mut any_failed = false;
@@ -66,7 +67,7 @@ pub fn run(
         let entry = if bibitem {
             Ok(format_bibitem(item, &citekey))
         } else {
-            match client.item_bibtex(&item.key) {
+            match read_client.item_bibtex(&item.key) {
                 Ok(bibtex) => replace_citekey(&bibtex, &citekey),
                 Err(err) => {
                     eprintln!("error: {:#} (for '{}')", err, item.key);

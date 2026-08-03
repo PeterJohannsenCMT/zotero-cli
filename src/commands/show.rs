@@ -10,9 +10,10 @@ use crate::zotero_api::{ApiItem, ZoteroClient};
 
 pub fn run(identifier: &str) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let item = cache
         .find_by_identifier(identifier)

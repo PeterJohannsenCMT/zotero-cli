@@ -218,11 +218,17 @@ Open a new shell (or `rm -f ~/.zcompdump*; compinit` in your current one, since
 `compinit` caches what it found) and `zotero open <TAB>` / `zotero edit <TAB>`
 will suggest matching paper keys.
 
-## Local cache
+## Local API and cache
 
-To avoid re-fetching your whole library on every command, `zotero` keeps a
-local cache at `~/Library/Caches/zotero-cli/cache.json` (or the equivalent
-`dirs::cache_dir()` location on other platforms) and uses the Zotero API's
+For reads, `zotero` first tries Zotero Desktop's local API at
+`http://localhost:23119/api/`. Enable it in Zotero's settings under Advanced:
+"Allow other applications on this computer to communicate with Zotero".
+The local API is read-only, offline-capable, faster, and has no Web API rate
+limits. If it isn't available, the CLI falls back to the Zotero Web API.
+
+To avoid re-fetching your whole library on every command, `zotero` keeps a local
+cache at `~/Library/Caches/zotero-cli/cache.json` (or the equivalent
+`dirs::cache_dir()` location on other platforms) and uses Zotero's
 `since=<version>` parameter to pull only what's changed since the last run.
 The first run after `zotero config` (or after deleting the cache file) does
 a full sync and will be slower, especially if it needs to backfill
@@ -234,7 +240,8 @@ incremental and fast. Delete the cache file any time to force a full resync.
 - Writes (`add`, `edit`, `collections edit`, and the AuthorYear backfill) go
   through the Zotero Web API rather than touching Zotero's local SQLite
   database directly, since direct external writes to that database are
-  unsupported and can cause sync corruption.
+  unsupported and can cause sync corruption. Zotero's local API currently
+  supports reads only, so writes and file uploads still use the Web API.
 - `zotero open` looks for a PDF child attachment on the item. For attachments
   Zotero has synced to disk, it resolves the file path under your local
   Zotero data directory (`storage/<key>/<filename>`) and opens it with your

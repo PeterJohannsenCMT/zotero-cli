@@ -10,9 +10,10 @@ use crate::zotero_api::ZoteroClient;
 
 pub fn run(identifier: &str) -> Result<()> {
     let config = Config::load()?;
-    let client = ZoteroClient::from_config(&config)?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
-    sync::sync_library(&client, &mut cache)?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let item = cache
         .find_by_identifier(identifier)
@@ -49,7 +50,7 @@ pub fn run(identifier: &str) -> Result<()> {
     keyword_store.set(&item.key, edited.keywords.clone());
     keyword_store.save()?;
 
-    let new_version = client.update_item(&item.key, item.version, patch.clone())?;
+    let new_version = write_client.update_item(&item.key, item.version, patch.clone())?;
 
     if let Some(cached) = cache.items.get_mut(&item.key)
         && let Some(obj) = cached.data.as_object_mut()
