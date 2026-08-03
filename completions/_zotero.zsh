@@ -6,7 +6,11 @@
 
 _zotero_paper_keys() {
     local -a keys
-    keys=(${(f)"$(zotero list 2>/dev/null)"})
+    keys=("${(@f)$(zotero list 2>/dev/null | awk '{
+        key = $1
+        sub(/^[^[:space:]]+[[:space:]]*/, "")
+        print key ":" $0
+    }')}")
     _describe -t paper-keys 'paper key' keys
 }
 
