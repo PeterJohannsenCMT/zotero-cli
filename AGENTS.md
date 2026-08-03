@@ -1,2 +1,4 @@
 - always run `cargo install --path .` after a `cargo build` to expose the command to my shell.
 - automatically update everything relevant to compinit when you make changes that affect completion (or when you add new commands etc). also update `~/.config/zsh/completions/_zotero` to update my shell
+- when pushing to github, please also make a new homebrew release (the corresponding github repo already exists)
+    - but dont install the homebrew version locally --- we use the cargo version
