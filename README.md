@@ -83,10 +83,10 @@ Items can be referenced by their `AuthorYear` tag (see below) or by their raw
 processed in turn; a failure on one doesn't stop the rest.
 
 `zotero list` and `zotero search` print the full TAG/YEAR/AUTHOR/TITLE table
-when run interactively, but switch to printing just the bare keys (one per
-line, no header) when their output isn't a terminal — e.g. when piped into
-another command — so they compose directly with `xargs`, `zotero open`,
-`zotero edit`, etc. without needing extra flags.
+when run interactively. When piped into another `zotero` command, they print
+just the bare keys (one per line, no header) so they compose directly with
+`xargs`, `zotero open`, `zotero edit`, etc. without needing extra flags. When
+piped into other commands, they print one aligned reference per line.
 
 ## AuthorYear tags
 

@@ -44,17 +44,15 @@ pub fn piped_into_zotero() -> bool {
         _ => return false,
     };
 
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .any(|line| {
-            let mut fields = line.split_whitespace();
-            let pid: Option<u32> = fields.next().and_then(|s| s.parse().ok());
-            let ppid: Option<u32> = fields.next().and_then(|s| s.parse().ok());
-            let comm = fields.next().unwrap_or("");
-            let name = comm.rsplit('/').next().unwrap_or(comm);
+    String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        let pid: Option<u32> = fields.next().and_then(|s| s.parse().ok());
+        let ppid: Option<u32> = fields.next().and_then(|s| s.parse().ok());
+        let comm = fields.next().unwrap_or("");
+        let name = comm.rsplit('/').next().unwrap_or(comm);
 
-            ppid == Some(parent_pid) && pid != Some(own_pid) && name == "zotero"
-        })
+        ppid == Some(parent_pid) && pid != Some(own_pid) && name == "zotero"
+    })
 }
 
 #[cfg(not(unix))]
@@ -88,14 +86,13 @@ pub fn print_table(items: &[&ApiItem]) {
         "TAG", "YEAR", "AUTHOR"
     );
     for item in items {
-        let year: String = item.date().chars().take(4).collect();
         let author = truncate(&item.creator_summary(), AUTHOR_WIDTH);
         let mut title_lines = wrap_text(&item.title(), title_width).into_iter();
 
         println!(
             "{:<tag_width$}  {:<YEAR_WIDTH$}  {:<AUTHOR_WIDTH$}  {}",
             display_key(item),
-            year,
+            year(item),
             author,
             title_lines.next().unwrap_or_default()
         );
@@ -106,6 +103,52 @@ pub fn print_table(items: &[&ApiItem]) {
             );
         }
     }
+}
+
+/// Print one aligned record per item, for piping into non-`zotero` commands
+/// or redirecting to a file without wrapped continuation lines.
+pub fn print_records(items: &[&ApiItem]) {
+    let (tag_width, year_width, author_width) = record_widths(items);
+    for item in items {
+        println!("{}", record_line(item, tag_width, year_width, author_width));
+    }
+}
+
+fn record_widths(items: &[&ApiItem]) -> (usize, usize, usize) {
+    let tag_width = items
+        .iter()
+        .map(|item| display_key(item).chars().count())
+        .max()
+        .unwrap_or(0);
+    let year_width = items
+        .iter()
+        .map(|item| year(item).chars().count())
+        .max()
+        .unwrap_or(0);
+    let author_width = items
+        .iter()
+        .map(|item| item.creator_summary().chars().count())
+        .max()
+        .unwrap_or(0);
+    (tag_width, year_width, author_width)
+}
+
+fn record_line(item: &ApiItem, tag_width: usize, year_width: usize, author_width: usize) -> String {
+    format!(
+        "{:<tag_width$}  {:<year_width$}  {:<author_width$}  {}",
+        display_key(item),
+        year(item),
+        item.creator_summary(),
+        sanitize_one_line(&item.title())
+    )
+}
+
+fn year(item: &ApiItem) -> String {
+    item.date().chars().take(4).collect()
+}
+
+fn sanitize_one_line(value: &str) -> String {
+    value.replace(['\t', '\n', '\r'], " ")
 }
 
 /// Print just the citation/item key of each item, one per line, for piping
@@ -145,4 +188,54 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
         lines.push(current);
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{record_line, record_widths};
+    use crate::zotero_api::ApiItem;
+
+    fn item(key: &str, title: &str, date: &str, author: &str, tag: &str) -> ApiItem {
+        ApiItem {
+            key: key.to_string(),
+            version: 1,
+            data: json!({
+                "title": title,
+                "date": date,
+                "creators": [{ "lastName": author }],
+                "tags": [{ "tag": tag }]
+            }),
+        }
+    }
+
+    #[test]
+    fn record_line_is_one_aligned_line() {
+        let first = item(
+            "ABCD1234",
+            "A title\nwith whitespace",
+            "2024-05-01",
+            "Smith",
+            "smith2024",
+        );
+        let second = item(
+            "EFGH5678",
+            "Short title",
+            "1999",
+            "Longlastname",
+            "longlastname1999",
+        );
+        let items = [&first, &second];
+        let (tag_width, year_width, author_width) = record_widths(&items);
+
+        assert_eq!(
+            record_line(&first, tag_width, year_width, author_width),
+            "smith2024         2024  Smith         A title with whitespace"
+        );
+        assert_eq!(
+            record_line(&second, tag_width, year_width, author_width),
+            "longlastname1999  1999  Longlastname  Short title"
+        );
+    }
 }

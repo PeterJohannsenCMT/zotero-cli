@@ -27,10 +27,12 @@ pub fn run(subcollection: Option<String>, tag: Option<String>) -> Result<()> {
 
     items.sort_by_key(|item| display::display_key(item));
 
-    if !display::stdout_is_terminal() && display::piped_into_zotero() {
+    if display::stdout_is_terminal() {
+        display::print_table(&items);
+    } else if display::piped_into_zotero() {
         display::print_keys(&items);
     } else {
-        display::print_table(&items);
+        display::print_records(&items);
     }
 
     Ok(())
