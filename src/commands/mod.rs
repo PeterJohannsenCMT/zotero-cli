@@ -8,4 +8,5 @@ pub mod export;
 pub mod list;
 pub mod open;
 pub mod search;
+pub mod show;
 pub mod sync;

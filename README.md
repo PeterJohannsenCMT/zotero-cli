@@ -8,7 +8,7 @@ backed by the [Zotero Web API](https://www.zotero.org/support/dev/web_api/v3/sta
 Via Homebrew (macOS/Linux):
 
 ```sh
-brew install PeterJohannsenCMT/tap/zotero-cli
+brew install peterjohannsencmt/tap/zotero-cli
 ```
 
 Or build from source:
@@ -115,6 +115,74 @@ the item's AuthorYear tag, so a `.bib` file pulled with `zotero export`
 cites the same way `zotero open`/`edit` address the item. Items without an
 AuthorYear tag (no derivable author/year) fall back to their raw Zotero key,
 with a warning on stderr.
+
+## Neovim integration
+
+The Neovim plugin is a thin editor wrapper around the `zotero` executable.
+It does not embed Zotero API access itself. For the plugin to work, Neovim
+must be able to run `zotero` from `$PATH`.
+
+Install the CLI first:
+
+```sh
+brew install peterjohannsencmt/tap/zotero-cli
+zotero config
+```
+
+Then add [`PeterJohannsenCMT/zotero-cli.nvim`](https://github.com/PeterJohannsenCMT/zotero-cli.nvim)
+to your Neovim plugin specs:
+
+```lua
+{
+  "PeterJohannsenCMT/zotero-cli.nvim",
+  dependencies = {
+    "ibhagwan/fzf-lua", -- optional but recommended
+  },
+  opts = {},
+  cmd = {
+    "ZoteroSearch",
+    "ZoteroOpen",
+    "ZoteroCite",
+    "ZoteroExportBib",
+    "ZoteroExportBibitem",
+    "ZoteroAdd",
+    "ZoteroAddManual",
+  },
+  keys = {
+    { "<leader>zs", "<cmd>ZoteroSearch<cr>", desc = "Zotero search" },
+    { "<leader>zo", "<cmd>ZoteroOpen<cr>", desc = "Zotero open" },
+    { "<leader>zc", "<cmd>ZoteroCite<cr>", desc = "Zotero cite" },
+    { "<leader>zb", "<cmd>ZoteroExportBib<cr>", desc = "Zotero export BibTeX" },
+    { "<leader>zi", "<cmd>ZoteroExportBibitem<cr>", desc = "Zotero export bibitem" },
+    { "<leader>za", "<cmd>ZoteroAdd<cr>", desc = "Zotero add DOI" },
+    { "<leader>zA", "<cmd>ZoteroAddManual<cr>", desc = "Zotero add manual" },
+  },
+}
+```
+
+Typical commands:
+
+```vim
+:ZoteroSearch
+:ZoteroSearch smith
+:ZoteroOpen
+:ZoteroOpen Smith2020
+:ZoteroCite
+:ZoteroExportBib Smith2020 Doe2021
+:ZoteroExportBibitem Smith2020
+:ZoteroAdd 10.1038/nphys1170
+:ZoteroAddManual book
+```
+
+`ZoteroSearch` opens an fzf picker immediately, shows Zotero's
+TAG/YEAR/AUTHOR/TITLE table for context, and inserts only the selected key at
+the cursor. This is meant for editing inside an existing citation, e.g.
+`\cite{_}` with the cursor at `_`.
+
+`ZoteroOpen`, `ZoteroCite`, `ZoteroExportBib`, and `ZoteroExportBibitem` use
+explicit command arguments when provided. Without arguments, they use the
+`<cword>` under the cursor as the Zotero key, falling back to the picker when
+there is no word under the cursor.
 
 ## Local keywords
 

@@ -33,6 +33,7 @@ _zotero() {
                 'collections:List or search your subcollections'
                 'add:Add an item to your library from a DOI'
                 'open:Open an item'\''s PDF (or its URL/DOI)'
+                'show:Show an item'\''s details'
                 'edit:Edit an item'\''s metadata in \$EDITOR'
                 'attach-pdf:Attach a PDF file to an item'
                 'export:Export items as BibTeX'
@@ -44,7 +45,7 @@ _zotero() {
             ;;
         args)
             case $line[1] in
-                open|edit)
+                open|show|edit)
                     _arguments '1:paper key:_zotero_paper_keys'
                     ;;
                 list|search)

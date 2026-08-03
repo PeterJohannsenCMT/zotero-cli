@@ -84,6 +84,11 @@ enum Commands {
         /// read one per line from stdin (e.g. piped from `zotero search`).
         identifier: Option<String>,
     },
+    /// Show an item's details
+    Show {
+        /// AuthorYear tag or raw Zotero item key
+        key: String,
+    },
     /// Edit an item's metadata in your $EDITOR
     Edit {
         /// AuthorYear tag or raw Zotero item key. If omitted, identifiers are
@@ -233,6 +238,7 @@ fn main() {
             }
         }
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
+        Commands::Show { key } => commands::show::run(&key),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
         Commands::AttachPdf { identifier, pdf } => commands::attach::pdf(&identifier, &pdf),
         Commands::Export {
