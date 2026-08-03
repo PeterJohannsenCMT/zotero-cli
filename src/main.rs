@@ -103,6 +103,9 @@ enum Commands {
         /// identifiers are read one per line from stdin (e.g. piped from
         /// `zotero search`), or use --subcollection/--tag to select a set.
         identifiers: Vec<String>,
+        /// Export as LaTeX \bibitem entries instead of BibTeX
+        #[arg(long)]
+        bibitem: bool,
         /// Export items in this subcollection
         #[arg(long)]
         subcollection: Option<String>,
@@ -234,9 +237,10 @@ fn main() {
         Commands::AttachPdf { identifier, pdf } => commands::attach::pdf(&identifier, &pdf),
         Commands::Export {
             identifiers,
+            bibitem,
             subcollection,
             tag,
-        } => commands::export::run(identifiers, subcollection, tag),
+        } => commands::export::run(identifiers, subcollection, tag, bibitem),
         Commands::Sync => commands::sync::run(),
         Commands::Config => commands::config_cmd::run(),
         Commands::Completions { shell } => commands::completions::run(shell),

@@ -65,6 +65,7 @@ _zotero() {
                     ;;
                 export)
                     _arguments \
+                        '--bibitem[Export as LaTeX bibitem entries instead of BibTeX]' \
                         '--subcollection=[Export items in this subcollection]:collection:_zotero_collection_names' \
                         '--tag=[Export items with this tag]:tag:_zotero_paper_keys' \
                         '*:paper key:_zotero_paper_keys'
