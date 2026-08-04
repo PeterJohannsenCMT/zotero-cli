@@ -8,7 +8,7 @@ use crate::zotero_api::ZoteroClient;
 pub fn run() -> Result<()> {
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
-    let write_client = ZoteroClient::web(&config)?;
+    let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::force_sync(&read_client, &write_client, &mut cache)?;
     eprintln!("Synced with Zotero.");

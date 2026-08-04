@@ -11,7 +11,7 @@ use crate::zotero_api::{ApiItem, ZoteroClient};
 pub fn run(identifier: &str) -> Result<()> {
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
-    let write_client = ZoteroClient::web(&config)?;
+    let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
@@ -25,7 +25,7 @@ pub fn run(identifier: &str) -> Result<()> {
     print_line("Authors", &format_creators(item));
     print_line("Date", &format_date(item.date()));
     print_line("Journal", string_field(&item.data, "publicationTitle"));
-    print_line("Key", &item.key);
+    print_line("Zotero Key", &item.key);
     if let Some(citation_key) = item.citation_key()
         && citation_key != item.key
     {

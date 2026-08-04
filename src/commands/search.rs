@@ -40,7 +40,7 @@ pub fn run(
 
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
-    let write_client = ZoteroClient::web(&config)?;
+    let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
     let keyword_store = Keywords::load()?;

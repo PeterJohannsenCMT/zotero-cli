@@ -23,6 +23,8 @@ pub fn pdf(identifier: &str, pdf_path: &Path) -> Result<()> {
 
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
+    // PDF uploads use Zotero's Web API storage authorization/register flow;
+    // keep this command on the Web client until local file-import support is added.
     let write_client = ZoteroClient::web(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;

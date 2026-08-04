@@ -193,9 +193,19 @@ impl ZoteroClient {
         })
     }
 
-    /// Prefer Zotero Desktop's local, read-only API, but fall back to the Web
+    /// Prefer Zotero Desktop's local API for reads, but fall back to the Web
     /// API if the local server is unavailable or disabled.
     pub fn read_preferred(config: &Config) -> Result<Self> {
+        let mut local = Self::local(config)?;
+        local.fallback = Some(Box::new(Self::web(config)?));
+        Ok(local)
+    }
+
+    /// Prefer Zotero Desktop's local API for writes too, falling back to the
+    /// Web API if the local server is unavailable or rejects the operation.
+    /// This avoids rate-limited Web API calls when Zotero Desktop is running,
+    /// while preserving the old behavior when it is not.
+    pub fn write_preferred(config: &Config) -> Result<Self> {
         let mut local = Self::local(config)?;
         local.fallback = Some(Box::new(Self::web(config)?));
         Ok(local)
@@ -205,7 +215,7 @@ impl ZoteroClient {
         self.source == ApiSource::Local
     }
 
-    fn with_read_fallback<T>(
+    fn with_fallback<T>(
         &self,
         action: impl Fn(&ZoteroClient) -> Result<T>,
         fallback_context: &str,
@@ -222,6 +232,22 @@ impl ZoteroClient {
             }
             Err(err) => Err(err),
         }
+    }
+
+    fn with_read_fallback<T>(
+        &self,
+        action: impl Fn(&ZoteroClient) -> Result<T>,
+        fallback_context: &str,
+    ) -> Result<T> {
+        self.with_fallback(action, fallback_context)
+    }
+
+    fn with_write_fallback<T>(
+        &self,
+        action: impl Fn(&ZoteroClient) -> Result<T>,
+        fallback_context: &str,
+    ) -> Result<T> {
+        self.with_fallback(action, fallback_context)
     }
 
     /// GETs every page of `path`, returning the collected JSON values plus the
@@ -389,6 +415,13 @@ impl ZoteroClient {
 
     /// Create one item; returns the created ApiItem (with key/version).
     pub fn create_item(&self, item: Value) -> Result<ApiItem> {
+        self.with_write_fallback(
+            |client| client.create_item_once(item.clone()),
+            "creating an item",
+        )
+    }
+
+    fn create_item_once(&self, item: Value) -> Result<ApiItem> {
         let url = format!("{}/items", self.base_url);
         let body = serde_json::json!([item]);
         let resp = self
@@ -532,6 +565,13 @@ impl ZoteroClient {
     /// Partially update an item. `patch` should contain only the changed
     /// fields. Returns the item's new library version.
     pub fn update_item(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
+        self.with_write_fallback(
+            |client| client.update_item_once(key, version, patch.clone()),
+            "updating an item",
+        )
+    }
+
+    fn update_item_once(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
         let url = format!("{}/items/{}", self.base_url, key);
         let resp = self
             .http
@@ -550,6 +590,13 @@ impl ZoteroClient {
 
     /// Delete an item. Returns the new library version.
     pub fn delete_item(&self, key: &str, version: i64) -> Result<i64> {
+        self.with_write_fallback(
+            |client| client.delete_item_once(key, version),
+            "deleting an item",
+        )
+    }
+
+    fn delete_item_once(&self, key: &str, version: i64) -> Result<i64> {
         let url = format!("{}/items/{}", self.base_url, key);
         let resp = self
             .http
@@ -569,6 +616,13 @@ impl ZoteroClient {
     /// changed fields (e.g. `{"name": "New Name"}`). Returns the
     /// collection's new library version.
     pub fn update_collection(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
+        self.with_write_fallback(
+            |client| client.update_collection_once(key, version, patch.clone()),
+            "updating a collection",
+        )
+    }
+
+    fn update_collection_once(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
         let url = format!("{}/collections/{}", self.base_url, key);
         let resp = self
             .http

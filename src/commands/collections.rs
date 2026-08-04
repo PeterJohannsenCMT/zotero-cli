@@ -47,7 +47,7 @@ pub fn search(query: &str) -> Result<()> {
 pub fn edit(name: &str, new_name: &str) -> Result<()> {
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
-    let write_client = ZoteroClient::web(&config)?;
+    let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
@@ -140,7 +140,7 @@ enum CollectionEdit {
 fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit) -> Result<()> {
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
-    let write_client = ZoteroClient::web(&config)?;
+    let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
@@ -207,7 +207,7 @@ fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit
 fn load_synced_cache() -> Result<Cache> {
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
-    let write_client = ZoteroClient::web(&config)?;
+    let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
     Ok(cache)
