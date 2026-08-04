@@ -30,10 +30,7 @@ pub fn run(doi: &str) -> Result<()> {
 
     println!("Looking up {} on CrossRef...", doi);
     let work = crossref::fetch_work(doi)?;
-    let canonical_doi = work
-        .get("DOI")
-        .and_then(Value::as_str)
-        .unwrap_or(doi);
+    let canonical_doi = work.get("DOI").and_then(Value::as_str).unwrap_or(doi);
     if let Some(existing) = find_existing_doi(&cache, canonical_doi) {
         bail!(
             "DOI '{}' is already present in your Zotero library as '{}' (key {})",

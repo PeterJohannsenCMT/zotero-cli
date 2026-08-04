@@ -169,7 +169,10 @@ pub fn fill_item_template(mut template: Value, work: &Value) -> Value {
     {
         template["issue"] = Value::String(issue.to_string());
     }
-    if let Some(page) = work.get("page").and_then(Value::as_str)
+    if let Some(page) = work
+        .get("page")
+        .or_else(|| work.get("article-number"))
+        .and_then(Value::as_str)
         && template.get("pages").is_some()
     {
         template["pages"] = Value::String(page.to_string());
@@ -200,4 +203,42 @@ pub fn fill_item_template(mut template: Value, work: &Value) -> Value {
     }
 
     template
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fill_item_template;
+
+    #[test]
+    fn uses_article_number_as_pages_when_page_is_missing() {
+        let template = serde_json::json!({
+            "itemType": "journalArticle",
+            "title": "",
+            "pages": ""
+        });
+        let work = serde_json::json!({
+            "type": "journal-article",
+            "title": ["Test"],
+            "article-number": "012345"
+        });
+
+        let item = fill_item_template(template, &work);
+        assert_eq!(item["pages"], "012345");
+    }
+
+    #[test]
+    fn prefers_page_over_article_number() {
+        let template = serde_json::json!({
+            "itemType": "journalArticle",
+            "pages": ""
+        });
+        let work = serde_json::json!({
+            "type": "journal-article",
+            "page": "12-34",
+            "article-number": "012345"
+        });
+
+        let item = fill_item_template(template, &work);
+        assert_eq!(item["pages"], "12-34");
+    }
 }

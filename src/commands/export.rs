@@ -68,7 +68,7 @@ pub fn run(
             Ok(format_bibitem(item, &citekey))
         } else {
             match read_client.item_bibtex(&item.key) {
-                Ok(bibtex) => replace_citekey(&bibtex, &citekey),
+                Ok(bibtex) => replace_citekey_and_filter_fields(&bibtex, &citekey),
                 Err(err) => {
                     eprintln!("error: {:#} (for '{}')", err, item.key);
                     any_failed = true;
@@ -99,9 +99,13 @@ pub fn run(
     Ok(())
 }
 
+const BIBTEX_EXPORT_FIELDS: [&str; 7] = [
+    "author", "title", "journal", "volume", "pages", "doi", "year",
+];
+
 /// Replace the citekey in a Zotero-rendered BibTeX entry (`@type{oldkey,
-/// ...}`) with `new_key`, leaving every other field untouched.
-fn replace_citekey(entry: &str, new_key: &str) -> Result<String> {
+/// ...}`) with `new_key`, and keep only the fields requested for `zotero export`.
+fn replace_citekey_and_filter_fields(entry: &str, new_key: &str) -> Result<String> {
     let open = entry
         .find('{')
         .ok_or_else(|| anyhow!("unexpected bibtex format (no '{{' found)"))?;
@@ -109,12 +113,116 @@ fn replace_citekey(entry: &str, new_key: &str) -> Result<String> {
         .find(',')
         .map(|i| i + open + 1)
         .ok_or_else(|| anyhow!("unexpected bibtex format (no ',' found)"))?;
-    Ok(format!(
-        "{}{}{}",
-        &entry[..open + 1],
-        new_key,
-        &entry[comma..]
-    ))
+    let close = matching_entry_close(entry, open)?;
+
+    let mut fields = Vec::new();
+    for field in split_bibtex_fields(&entry[comma + 1..close]) {
+        let Some(eq) = field.find('=') else {
+            continue;
+        };
+        let name = field[..eq].trim().to_ascii_lowercase();
+        if BIBTEX_EXPORT_FIELDS.contains(&name.as_str()) {
+            fields.push((
+                name,
+                field[eq + 1..]
+                    .trim()
+                    .trim_end_matches(',')
+                    .trim()
+                    .to_string(),
+            ));
+        }
+    }
+
+    let mut out = format!("{}{},", &entry[..open + 1], new_key);
+    for wanted in BIBTEX_EXPORT_FIELDS {
+        if let Some((_, value)) = fields.iter().find(|(name, _)| name == wanted) {
+            out.push_str(&format!("\n  {} = {},", wanted, value));
+        }
+    }
+    out.push_str("\n}");
+    Ok(out)
+}
+
+fn matching_entry_close(entry: &str, open: usize) -> Result<usize> {
+    let mut depth = 0usize;
+    let mut in_quote = false;
+    let mut escaped = false;
+
+    for (idx, ch) in entry[open..].char_indices() {
+        let absolute = open + idx;
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' && depth <= 1 {
+            in_quote = !in_quote;
+        }
+        if in_quote {
+            continue;
+        }
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Ok(absolute);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Err(anyhow!("unexpected bibtex format (entry was not closed)"))
+}
+
+fn split_bibtex_fields(body: &str) -> Vec<&str> {
+    let mut fields = Vec::new();
+    let mut start = 0usize;
+    let mut brace_depth = 0usize;
+    let mut paren_depth = 0usize;
+    let mut in_quote = false;
+    let mut escaped = false;
+
+    for (idx, ch) in body.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' && brace_depth == 0 {
+            in_quote = !in_quote;
+        }
+        if in_quote {
+            continue;
+        }
+        match ch {
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            ',' if brace_depth == 0 && paren_depth == 0 => {
+                let field = body[start..idx].trim();
+                if !field.is_empty() {
+                    fields.push(field);
+                }
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+
+    let field = body[start..].trim();
+    if !field.is_empty() {
+        fields.push(field);
+    }
+    fields
 }
 
 fn format_bibitem(item: &ApiItem, citekey: &str) -> String {
@@ -438,15 +546,15 @@ fn latex_escape_citekey(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_bibitem, latex_escape, replace_citekey};
+    use super::{format_bibitem, latex_escape, replace_citekey_and_filter_fields};
     use crate::zotero_api::ApiItem;
 
     #[test]
-    fn replaces_bibtex_citekey() {
-        let entry = "@article{old,\n  title = {Title},\n}";
+    fn replaces_bibtex_citekey_and_keeps_only_requested_fields() {
+        let entry = "@article{old,\n  title = {Title},\n  abstract = {Nope},\n  year = {2020},\n  doi = {10.1000/test},\n}";
         assert_eq!(
-            replace_citekey(entry, "Smith2020").unwrap(),
-            "@article{Smith2020,\n  title = {Title},\n}"
+            replace_citekey_and_filter_fields(entry, "Smith2020").unwrap(),
+            "@article{Smith2020,\n  title = {Title},\n  doi = {10.1000/test},\n  year = {2020},\n}"
         );
     }
 
