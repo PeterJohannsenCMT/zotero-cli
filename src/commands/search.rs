@@ -45,10 +45,10 @@ pub fn run(
     sync::sync_library(&read_client, &write_client, &mut cache)?;
     let keyword_store = Keywords::load()?;
 
-    let collection_key = match &subcollection {
-        Some(name) => Some(cache.resolve_collection_by_name(name)?),
-        None => None,
-    };
+    let collection_key = cache.effective_collection_key(
+        subcollection.as_deref(),
+        config.current_collection_key.as_deref(),
+    )?;
 
     type FieldFn<'a> = Box<dyn Fn(&ApiItem) -> String + 'a>;
     let keyword_map = keyword_store.all();

@@ -87,6 +87,50 @@ pub fn remove_item(identifier: &str, collection: &str) -> Result<()> {
     set_item_collections(identifier, collection, CollectionEdit::Remove)
 }
 
+/// Set the default subcollection context used by `zotero list`, `zotero search`,
+/// and filtered `zotero export`.
+pub fn use_collection(collection: &str) -> Result<()> {
+    let mut config = Config::load()?;
+    let cache = load_synced_cache()?;
+    let key = cache.resolve_collection_by_name(collection)?;
+    let name = cache
+        .collection_name(&key)
+        .unwrap_or_else(|| collection.to_string());
+
+    config.current_collection_key = Some(key);
+    config.save()?;
+
+    println!("Now using subcollection '{}'.", name);
+    Ok(())
+}
+
+/// Clear the default subcollection context, returning to the library top level.
+pub fn clear_current() -> Result<()> {
+    let mut config = Config::load()?;
+    config.current_collection_key = None;
+    config.save()?;
+    println!("Now using the library top level.");
+    Ok(())
+}
+
+/// Print the current default subcollection context.
+pub fn current() -> Result<()> {
+    let config = Config::load()?;
+    let Some(key) = config.current_collection_key.as_deref() else {
+        println!("Top level");
+        return Ok(());
+    };
+
+    let cache = load_synced_cache()?;
+    let name = cache.collection_name(key).ok_or_else(|| {
+        anyhow!(
+            "current subcollection no longer exists; run `zotero collections clear` or `zotero collections use <name>`"
+        )
+    })?;
+    println!("{}", name);
+    Ok(())
+}
+
 enum CollectionEdit {
     Replace,
     Add,
@@ -101,10 +145,25 @@ fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
     let collection_key = cache.resolve_collection_by_name(collection)?;
-    let item = cache
-        .find_by_identifier(identifier)
-        .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
-        .clone();
+    let cached_item = match cache.find_by_identifier(identifier) {
+        Some(item) => item.clone(),
+        None => {
+            // If the user just changed an AuthorYear tag elsewhere, our fresh
+            // cache window can make the new identifier temporarily invisible.
+            // Force one real sync before giving up.
+            sync::force_sync(&read_client, &write_client, &mut cache)?;
+            cache
+                .find_by_identifier(identifier)
+                .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
+                .clone()
+        }
+    };
+
+    // Fetch the live item before writing. Tag edits made outside this CLI bump
+    // Zotero's item version, and using the cached version for a collections
+    // patch causes a 412 Precondition Failed. Building the patch from the live
+    // item also preserves the just-edited tags in our cache.
+    let mut item = write_client.get_item(&cached_item.key)?;
 
     let current = item
         .data
@@ -130,12 +189,11 @@ fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit
     let patch = serde_json::json!({ "collections": keys });
     let new_version = write_client.update_item(&item.key, item.version, patch.clone())?;
 
-    if let Some(cached) = cache.items.get_mut(&item.key)
-        && let Some(obj) = cached.data.as_object_mut()
-    {
+    if let Some(obj) = item.data.as_object_mut() {
         obj.insert("collections".to_string(), patch["collections"].clone());
-        cached.version = new_version;
     }
+    item.version = new_version;
+    cache.items.insert(item.key.clone(), item.clone());
     cache.save()?;
 
     match edit {

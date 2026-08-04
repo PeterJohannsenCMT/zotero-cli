@@ -67,6 +67,7 @@ pub fn run() -> Result<()> {
         library_id,
         api_key,
         zotero_data_dir,
+        current_collection_key: existing.current_collection_key,
     };
     config.save()?;
     println!("\nSaved config to {}", Config::path()?.display());

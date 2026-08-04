@@ -15,6 +15,9 @@ pub struct Config {
     /// Optional override for the local Zotero data directory (contains storage/)
     #[serde(default)]
     pub zotero_data_dir: Option<String>,
+    /// Optional default collection context for list/search/export.
+    #[serde(default)]
+    pub current_collection_key: Option<String>,
 }
 
 impl Config {

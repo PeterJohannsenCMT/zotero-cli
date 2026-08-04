@@ -18,7 +18,11 @@ pub fn run(
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
-    let use_filters = subcollection.is_some() || tag.is_some();
+    let collection_key = cache.effective_collection_key(
+        subcollection.as_deref(),
+        config.current_collection_key.as_deref(),
+    )?;
+    let use_filters = collection_key.is_some() || tag.is_some();
     let mut any_failed = false;
 
     let targets: Vec<ApiItem> = if !identifiers.is_empty() || !use_filters {
@@ -42,10 +46,6 @@ pub fn run(
         }
         resolved
     } else {
-        let collection_key = match &subcollection {
-            Some(name) => Some(cache.resolve_collection_by_name(name)?),
-            None => None,
-        };
         let items = cache.top_level_items(collection_key.as_deref(), tag.as_deref());
         if items.is_empty() {
             eprintln!("No items found.");

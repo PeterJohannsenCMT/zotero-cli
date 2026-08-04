@@ -41,7 +41,7 @@ cargo install --path .
 ## Commands
 
 ```sh
-zotero list                          # list all top-level items
+zotero list                          # list all top-level items (or current subcollection)
 zotero list --subcollection=Optics   # list items in a subcollection
 zotero list --tag=Smith2020          # filter by tag
 
@@ -57,6 +57,9 @@ zotero search majorana | xargs -I{} zotero open {}   # pipe into open/edit/etc.
 
 zotero collections list              # list all subcollections as an indented tree
 zotero collections search optics     # print subcollection names matching a query
+zotero collections use Optics        # make list/search/export default to Optics
+zotero collections current           # show the current default subcollection
+zotero collections clear             # return to the library top level by default
 zotero collections edit Optics "Optics & Photonics"   # rename a subcollection
 
 zotero add 10.1038/nphys1170         # look up a DOI on CrossRef and add it

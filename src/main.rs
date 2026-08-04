@@ -25,7 +25,7 @@ struct Cli {
 enum Commands {
     /// List items in your library
     List {
-        /// Only list items in this subcollection
+        /// Only list items in this subcollection (overrides `collections use`)
         #[arg(long)]
         subcollection: Option<String>,
         /// Only list items with this tag
@@ -52,7 +52,7 @@ enum Commands {
         /// Only match against local keywords (set via `zotero edit`)
         #[arg(long)]
         keywords: Option<String>,
-        /// Only search items in this subcollection
+        /// Only search items in this subcollection (overrides `collections use`)
         #[arg(long)]
         subcollection: Option<String>,
         /// Only search items with this tag
@@ -111,7 +111,7 @@ enum Commands {
         /// Export as LaTeX \bibitem entries instead of BibTeX
         #[arg(long)]
         bibitem: bool,
-        /// Export items in this subcollection
+        /// Export items in this subcollection (overrides `collections use`)
         #[arg(long)]
         subcollection: Option<String>,
         /// Export items with this tag
@@ -139,6 +139,15 @@ enum CollectionsCommand {
         /// Free-text query, matched against subcollection names
         query: String,
     },
+    /// Set the default subcollection for list/search/export
+    Use {
+        /// Subcollection name to use by default
+        collection: String,
+    },
+    /// Show the current default subcollection
+    Current,
+    /// Return to the library top level by default
+    Clear,
     /// Rename a subcollection
     Edit {
         /// The subcollection's current name
@@ -205,6 +214,11 @@ fn main() {
         Commands::Collections { command } => match command {
             CollectionsCommand::List => commands::collections::list(),
             CollectionsCommand::Search { query } => commands::collections::search(&query),
+            CollectionsCommand::Use { collection } => {
+                commands::collections::use_collection(&collection)
+            }
+            CollectionsCommand::Current => commands::collections::current(),
+            CollectionsCommand::Clear => commands::collections::clear_current(),
             CollectionsCommand::Edit { name, new_name } => {
                 commands::collections::edit(&name, &new_name)
             }

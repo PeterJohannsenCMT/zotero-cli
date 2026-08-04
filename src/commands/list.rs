@@ -13,10 +13,10 @@ pub fn run(subcollection: Option<String>, tag: Option<String>) -> Result<()> {
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
-    let collection_key = match &subcollection {
-        Some(name) => Some(cache.resolve_collection_by_name(name)?),
-        None => None,
-    };
+    let collection_key = cache.effective_collection_key(
+        subcollection.as_deref(),
+        config.current_collection_key.as_deref(),
+    )?;
 
     let mut items = cache.top_level_items(collection_key.as_deref(), tag.as_deref());
 

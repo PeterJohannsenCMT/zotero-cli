@@ -80,6 +80,9 @@ _zotero() {
                     collections_subcmds=(
                         'list:List all subcollections as an indented tree'
                         'search:Search subcollections by name'
+                        'use:Set the default subcollection for list/search/export'
+                        'current:Show the current default subcollection'
+                        'clear:Return to the library top level by default'
                         'edit:Rename a subcollection'
                         'move-item:Replace an item'\''s collection membership with one subcollection'
                         'add-item:Add an item to a subcollection, keeping existing memberships'
@@ -91,6 +94,9 @@ _zotero() {
                         case $line[2] in
                             search)
                                 _arguments '1:query:'
+                                ;;
+                            use)
+                                _arguments '1:collection:_zotero_collection_names'
                                 ;;
                             edit)
                                 _arguments \

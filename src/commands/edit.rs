@@ -15,10 +15,22 @@ pub fn run(identifier: &str) -> Result<()> {
     let mut cache = Cache::load()?;
     sync::sync_library(&read_client, &write_client, &mut cache)?;
 
-    let item = cache
-        .find_by_identifier(identifier)
-        .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
-        .clone();
+    let cached_item = match cache.find_by_identifier(identifier) {
+        Some(item) => item.clone(),
+        None => {
+            // A recent external tag change can make an identifier absent from
+            // the cached view during the freshness window. Sync once before
+            // reporting that it doesn't exist.
+            sync::force_sync(&read_client, &write_client, &mut cache)?;
+            cache
+                .find_by_identifier(identifier)
+                .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
+                .clone()
+        }
+    };
+    // Edit the live item so external tag changes don't leave us patching with
+    // a stale Zotero version (412 Precondition Failed) or displaying old data.
+    let item = write_client.get_item(&cached_item.key)?;
     let mut keyword_store = Keywords::load()?;
     let mut editable = EditableItem::from_data(&item.data);
     editable.keywords = keyword_store.for_item(&item.key);
@@ -52,15 +64,16 @@ pub fn run(identifier: &str) -> Result<()> {
 
     let new_version = write_client.update_item(&item.key, item.version, patch.clone())?;
 
-    if let Some(cached) = cache.items.get_mut(&item.key)
-        && let Some(obj) = cached.data.as_object_mut()
+    let mut updated_item = item;
+    if let Some(obj) = updated_item.data.as_object_mut()
         && let Some(patch_obj) = patch.as_object()
     {
         for (k, v) in patch_obj {
             obj.insert(k.clone(), v.clone());
         }
-        cached.version = new_version;
     }
+    updated_item.version = new_version;
+    cache.items.insert(updated_item.key.clone(), updated_item);
     cache.save()?;
 
     println!("Updated '{}'.", edited.title);

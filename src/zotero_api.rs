@@ -697,6 +697,7 @@ mod tests {
             library_id: "12345".to_string(),
             api_key: "abc".to_string(),
             zotero_data_dir: None,
+            current_collection_key: None,
         }
     }
 

@@ -61,6 +61,29 @@ impl Cache {
             .ok_or_else(|| anyhow!("no subcollection named '{}' found", name))
     }
 
+    pub fn collection_name(&self, key: &str) -> Option<String> {
+        self.collections.get(key).map(|c| c.name().to_string())
+    }
+
+    pub fn effective_collection_key(
+        &self,
+        explicit_name: Option<&str>,
+        current_key: Option<&str>,
+    ) -> Result<Option<String>> {
+        if let Some(name) = explicit_name {
+            return self.resolve_collection_by_name(name).map(Some);
+        }
+        if let Some(key) = current_key {
+            if self.collections.contains_key(key) {
+                return Ok(Some(key.to_string()));
+            }
+            return Err(anyhow!(
+                "current subcollection no longer exists; run `zotero collections clear` or `zotero collections use <name>`"
+            ));
+        }
+        Ok(None)
+    }
+
     /// Look up an item by its raw Zotero key or its AuthorYear citation tag.
     pub fn find_by_identifier(&self, identifier: &str) -> Option<&ApiItem> {
         self.items.get(identifier).or_else(|| {
