@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use serde_json::Value;
 use std::process::Command;
 
 use crate::cache::Cache;
@@ -6,6 +7,7 @@ use crate::config::Config;
 use crate::crossref;
 use crate::editable_item::EditableItem;
 use crate::keywords::Keywords;
+use crate::sync;
 use crate::tagging;
 use crate::zotero_api::{ApiItem, ZoteroClient};
 
@@ -14,8 +16,32 @@ pub fn run(doi: &str) -> Result<()> {
     let read_client = ZoteroClient::read_preferred(&config)?;
     let write_client = ZoteroClient::web(&config)?;
 
+    let mut cache = Cache::load()?;
+    sync::force_sync(&read_client, &write_client, &mut cache)
+        .context("checking whether this DOI is already in your Zotero library")?;
+    if let Some(existing) = find_existing_doi(&cache, doi) {
+        bail!(
+            "DOI '{}' is already present in your Zotero library as '{}' (key {})",
+            doi,
+            existing.title(),
+            existing.key
+        );
+    }
+
     println!("Looking up {} on CrossRef...", doi);
     let work = crossref::fetch_work(doi)?;
+    let canonical_doi = work
+        .get("DOI")
+        .and_then(Value::as_str)
+        .unwrap_or(doi);
+    if let Some(existing) = find_existing_doi(&cache, canonical_doi) {
+        bail!(
+            "DOI '{}' is already present in your Zotero library as '{}' (key {})",
+            canonical_doi,
+            existing.title(),
+            existing.key
+        );
+    }
 
     let item_type = crossref::item_type_for_work(&work);
     let template = read_client.item_template(item_type)?;
@@ -38,11 +64,52 @@ pub fn run(doi: &str) -> Result<()> {
     // Insert directly into the cache so it shows up immediately in `list`/
     // `search`/`open`/`edit` even within the freshness window that would
     // otherwise skip talking to the server again.
-    let mut cache = Cache::load()?;
     cache.items.insert(created.key.clone(), created);
     cache.save()?;
 
     Ok(())
+}
+
+fn find_existing_doi<'a>(cache: &'a Cache, doi: &str) -> Option<&'a ApiItem> {
+    let needle = normalize_doi(doi)?;
+    cache.items.values().find(|item| {
+        item.data
+            .get("DOI")
+            .and_then(Value::as_str)
+            .and_then(normalize_doi)
+            .as_deref()
+            == Some(needle.as_str())
+    })
+}
+
+fn normalize_doi(doi: &str) -> Option<String> {
+    let mut doi = doi.trim();
+    if doi.is_empty() {
+        return None;
+    }
+
+    if doi
+        .get(..4)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("doi:"))
+    {
+        doi = doi[4..].trim_start();
+    }
+    for prefix in ["https://doi.org/", "http://doi.org/", "doi.org/"] {
+        if doi
+            .get(..prefix.len())
+            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        {
+            doi = &doi[prefix.len()..];
+            break;
+        }
+    }
+
+    let doi = doi.trim().trim_end_matches(['.', ',', ';']);
+    if doi.is_empty() {
+        None
+    } else {
+        Some(doi.to_ascii_lowercase())
+    }
 }
 
 /// Add an item by hand, for cases CrossRef can't help with: books, webpages,
