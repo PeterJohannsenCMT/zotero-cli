@@ -95,6 +95,12 @@ enum Commands {
         /// read one per line from stdin (e.g. piped from `zotero search`).
         identifier: Option<String>,
     },
+    /// Remove an item from your Zotero library
+    Remove {
+        /// AuthorYear tag or raw Zotero item key
+        #[arg(value_name = "REF_ID")]
+        identifier: String,
+    },
     /// Attach a PDF file to an item
     AttachPdf {
         /// AuthorYear tag or raw Zotero item key
@@ -254,6 +260,7 @@ fn main() {
         Commands::Open { identifier } => run_for_each(identifier, commands::open::run),
         Commands::Show { key } => commands::show::run(&key),
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
+        Commands::Remove { identifier } => commands::remove::run(&identifier),
         Commands::AttachPdf { identifier, pdf } => commands::attach::pdf(&identifier, &pdf),
         Commands::Export {
             identifiers,

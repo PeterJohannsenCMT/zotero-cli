@@ -72,6 +72,7 @@ zotero open Smith2020                # open the PDF for the item tagged Smith202
                                       # (falls back to the item's URL/DOI if no PDF)
 
 zotero edit Smith2020                # edit metadata in $EDITOR, saved back on exit
+zotero remove Smith2020              # remove an item from your Zotero library
 
 zotero search majorana | zotero open   # open every matching PDF
 zotero search majorana | zotero edit   # walk through editing every match

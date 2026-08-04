@@ -39,6 +39,7 @@ _zotero() {
                 'open:Open an item'\''s PDF (or its URL/DOI)'
                 'show:Show an item'\''s details'
                 'edit:Edit an item'\''s metadata in \$EDITOR'
+                'remove:Remove an item from your Zotero library'
                 'attach-pdf:Attach a PDF file to an item'
                 'export:Export items as BibTeX'
                 'sync:Force a sync with the Zotero API'
@@ -49,7 +50,7 @@ _zotero() {
             ;;
         args)
             case $line[1] in
-                open|show|edit)
+                open|show|edit|remove)
                     _arguments '1:paper key:_zotero_paper_keys'
                     ;;
                 list|search)

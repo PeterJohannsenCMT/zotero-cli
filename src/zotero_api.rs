@@ -548,6 +548,23 @@ impl ZoteroClient {
         Ok(version_header(&resp).unwrap_or(version + 1))
     }
 
+    /// Delete an item. Returns the new library version.
+    pub fn delete_item(&self, key: &str, version: i64) -> Result<i64> {
+        let url = format!("{}/items/{}", self.base_url, key);
+        let resp = self
+            .http
+            .delete(&url)
+            .header("If-Unmodified-Since-Version", version.to_string())
+            .send()
+            .context("request failed")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().unwrap_or_default();
+            bail!("deleting item failed: {} {}", status, body);
+        }
+        Ok(version_header(&resp).unwrap_or(version + 1))
+    }
+
     /// Partially update a collection. `patch` should contain only the
     /// changed fields (e.g. `{"name": "New Name"}`). Returns the
     /// collection's new library version.
