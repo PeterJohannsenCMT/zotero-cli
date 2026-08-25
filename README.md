@@ -120,6 +120,11 @@ cites the same way `zotero open`/`edit` address the item. Items without an
 AuthorYear tag (no derivable author/year) fall back to their raw Zotero key,
 with a warning on stderr.
 
+By default, recognized journal names are written as REVTeX/apsrev macros or
+abbreviations, e.g. `journal = prb,` instead of
+`journal = {Physical Review B},`. Pass `--no-revtex-journals` to preserve
+Zotero's original journal strings for a portable non-REVTeX export.
+
 ## Neovim integration
 
 The Neovim plugin is a thin editor wrapper around the `zotero` executable.

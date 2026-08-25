@@ -72,6 +72,7 @@ _zotero() {
                 export)
                     _arguments \
                         '--bibitem[Export as LaTeX bibitem entries instead of BibTeX]' \
+                        '--no-revtex-journals[Preserve Zotero journal strings instead of REVTeX/apsrev macros]' \
                         '--subcollection=[Export items in this subcollection]:collection:_zotero_collection_names' \
                         '--tag=[Export items with this tag]:tag:_zotero_paper_keys' \
                         '*:paper key:_zotero_paper_keys'

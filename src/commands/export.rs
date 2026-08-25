@@ -11,6 +11,7 @@ pub fn run(
     subcollection: Option<String>,
     tag: Option<String>,
     bibitem: bool,
+    revtex_journals: bool,
 ) -> Result<()> {
     let config = Config::load()?;
     let read_client = ZoteroClient::read_preferred(&config)?;
@@ -68,7 +69,9 @@ pub fn run(
             Ok(format_bibitem(item, &citekey))
         } else {
             match read_client.item_bibtex(&item.key) {
-                Ok(bibtex) => replace_citekey_and_filter_fields(&bibtex, &citekey),
+                Ok(bibtex) => {
+                    replace_citekey_and_filter_fields(&bibtex, &citekey, revtex_journals, item)
+                }
                 Err(err) => {
                     eprintln!("error: {:#} (for '{}')", err, item.key);
                     any_failed = true;
@@ -105,7 +108,12 @@ const BIBTEX_EXPORT_FIELDS: [&str; 7] = [
 
 /// Replace the citekey in a Zotero-rendered BibTeX entry (`@type{oldkey,
 /// ...}`) with `new_key`, and keep only the fields requested for `zotero export`.
-fn replace_citekey_and_filter_fields(entry: &str, new_key: &str) -> Result<String> {
+fn replace_citekey_and_filter_fields(
+    entry: &str,
+    new_key: &str,
+    revtex_journals: bool,
+    item: &ApiItem,
+) -> Result<String> {
     let open = entry
         .find('{')
         .ok_or_else(|| anyhow!("unexpected bibtex format (no '{{' found)"))?;
@@ -122,14 +130,18 @@ fn replace_citekey_and_filter_fields(entry: &str, new_key: &str) -> Result<Strin
         };
         let name = field[..eq].trim().to_ascii_lowercase();
         if BIBTEX_EXPORT_FIELDS.contains(&name.as_str()) {
-            fields.push((
-                name,
-                field[eq + 1..]
-                    .trim()
-                    .trim_end_matches(',')
-                    .trim()
-                    .to_string(),
-            ));
+            let mut value = field[eq + 1..]
+                .trim()
+                .trim_end_matches(',')
+                .trim()
+                .to_string();
+            if revtex_journals
+                && name == "journal"
+                && let Some(macro_name) = revtex_journal_macro(item, &value)
+            {
+                value = macro_name.to_string();
+            }
+            fields.push((name, value));
         }
     }
 
@@ -141,6 +153,122 @@ fn replace_citekey_and_filter_fields(entry: &str, new_key: &str) -> Result<Strin
     }
     out.push_str("\n}");
     Ok(out)
+}
+
+const REVTEX_JOURNAL_ALIASES: &[(&str, &[&str])] = &[
+    (
+        "prl",
+        &["prl", "Physical Review Letters", "Phys. Rev. Lett."],
+    ),
+    ("pr", &["pr", "Physical Review", "Phys. Rev."]),
+    ("pra", &["pra", "Physical Review A", "Phys. Rev. A"]),
+    ("prb", &["prb", "Physical Review B", "Phys. Rev. B"]),
+    ("prc", &["prc", "Physical Review C", "Phys. Rev. C"]),
+    ("prd", &["prd", "Physical Review D", "Phys. Rev. D"]),
+    ("pre", &["pre", "Physical Review E", "Phys. Rev. E"]),
+    (
+        "rmp",
+        &["rmp", "Reviews of Modern Physics", "Rev. Mod. Phys."],
+    ),
+    (
+        "apl",
+        &["apl", "Applied Physics Letters", "Appl. Phys. Lett."],
+    ),
+    (
+        "jap",
+        &["jap", "Journal of Applied Physics", "J. Appl. Phys."],
+    ),
+    (
+        "jmp",
+        &["jmp", "Journal of Mathematical Physics", "J. Math. Phys."],
+    ),
+    (
+        "{J. Chem. Phys.}",
+        &[
+            "Journal of Chemical Physics",
+            "The Journal of Chemical Physics",
+            "J. Chem. Phys.",
+        ],
+    ),
+    ("pf", &["pf", "Physics of Fluids", "Phys. Fluids"]),
+    ("pp", &["pp", "Physics of Plasmas", "Phys. Plasmas"]),
+    (
+        "rsi",
+        &[
+            "rsi",
+            "Review of Scientific Instruments",
+            "Rev. Sci. Instrum.",
+            "Rev. Sci. Inst.",
+        ],
+    ),
+    ("pl", &["pl", "Physics Letters", "Phys. Lett."]),
+    ("pla", &["pla", "Physics Letters A", "Phys. Lett. A"]),
+    ("plb", &["plb", "Physics Letters B", "Phys. Lett. B"]),
+    ("nat", &["nat", "Nature"]),
+    ("science", &["science", "Science"]),
+    (
+        "{SciPost Phys.}",
+        &["SciPost Physics", "Sci Post Physics", "SciPost Phys."],
+    ),
+    (
+        "{SciPost Phys. Core}",
+        &[
+            "SciPost Physics Core",
+            "Sci Post Physics Core",
+            "SciPost Phys. Core",
+        ],
+    ),
+];
+
+fn revtex_journal_macro(item: &ApiItem, bibtex_value: &str) -> Option<&'static str> {
+    let mut candidates = vec![clean_bibtex_value(bibtex_value)];
+    candidates.extend(field(item, "publicationTitle"));
+    candidates.extend(field(item, "journalAbbreviation"));
+
+    candidates
+        .iter()
+        .find_map(|candidate| revtex_journal_macro_for_text(candidate))
+}
+
+fn revtex_journal_macro_for_text(text: &str) -> Option<&'static str> {
+    let wanted = normalize_journal_name(text);
+    if wanted.is_empty() {
+        return None;
+    }
+
+    REVTEX_JOURNAL_ALIASES
+        .iter()
+        .find_map(|(macro_name, aliases)| {
+            aliases
+                .iter()
+                .any(|alias| normalize_journal_name(alias) == wanted)
+                .then_some(*macro_name)
+        })
+}
+
+fn clean_bibtex_value(value: &str) -> String {
+    let mut text = value.trim();
+    loop {
+        let stripped = if let Some(inner) = text.strip_prefix('{').and_then(|s| s.strip_suffix('}'))
+        {
+            Some(inner)
+        } else {
+            text.strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+        };
+        match stripped {
+            Some(inner) => text = inner.trim(),
+            None => break,
+        }
+    }
+    text.to_string()
+}
+
+fn normalize_journal_name(text: &str) -> String {
+    clean_bibtex_value(text)
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
 }
 
 fn matching_entry_close(entry: &str, open: usize) -> Result<usize> {
@@ -551,10 +679,77 @@ mod tests {
 
     #[test]
     fn replaces_bibtex_citekey_and_keeps_only_requested_fields() {
+        let item = ApiItem {
+            key: "ABCD1234".to_string(),
+            version: 1,
+            data: serde_json::json!({}),
+        };
         let entry = "@article{old,\n  title = {Title},\n  abstract = {Nope},\n  year = {2020},\n  doi = {10.1000/test},\n}";
         assert_eq!(
-            replace_citekey_and_filter_fields(entry, "Smith2020").unwrap(),
+            replace_citekey_and_filter_fields(entry, "Smith2020", false, &item).unwrap(),
             "@article{Smith2020,\n  title = {Title},\n  doi = {10.1000/test},\n  year = {2020},\n}"
+        );
+    }
+
+    #[test]
+    fn can_rewrite_physical_review_journal_to_revtex_macro() {
+        let item = ApiItem {
+            key: "ABCD1234".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "publicationTitle": "Physical Review B",
+                "journalAbbreviation": "Phys. Rev. B"
+            }),
+        };
+        let entry = "@article{old,\n  title = {Title},\n  journal = {Physical Review B},\n  year = {2020},\n}";
+        assert_eq!(
+            replace_citekey_and_filter_fields(entry, "Smith2020", true, &item).unwrap(),
+            "@article{Smith2020,\n  title = {Title},\n  journal = prb,\n  year = {2020},\n}"
+        );
+    }
+
+    #[test]
+    fn can_use_zotero_metadata_to_pick_revtex_journal_macro() {
+        let item = ApiItem {
+            key: "ABCD1234".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "publicationTitle": "Physical Review Letters"
+            }),
+        };
+        let entry = "@article{old,\n  journal = {PhysRevLett},\n  year = {2020},\n}";
+        assert_eq!(
+            replace_citekey_and_filter_fields(entry, "Smith2020", true, &item).unwrap(),
+            "@article{Smith2020,\n  journal = prl,\n  year = {2020},\n}"
+        );
+    }
+
+    #[test]
+    fn abbreviates_scipost_journal_names() {
+        let item = ApiItem {
+            key: "ABCD1234".to_string(),
+            version: 1,
+            data: serde_json::json!({}),
+        };
+        let entry = "@article{old,\n  journal = {SciPost Physics},\n  year = {2020},\n}";
+        assert_eq!(
+            replace_citekey_and_filter_fields(entry, "Smith2020", true, &item).unwrap(),
+            "@article{Smith2020,\n  journal = {SciPost Phys.},\n  year = {2020},\n}"
+        );
+    }
+
+    #[test]
+    fn abbreviates_journal_of_chemical_physics_without_using_revtex_jcp_macro() {
+        let item = ApiItem {
+            key: "ABCD1234".to_string(),
+            version: 1,
+            data: serde_json::json!({}),
+        };
+        let entry =
+            "@article{old,\n  journal = {Journal of Chemical Physics},\n  year = {2020},\n}";
+        assert_eq!(
+            replace_citekey_and_filter_fields(entry, "Smith2020", true, &item).unwrap(),
+            "@article{Smith2020,\n  journal = {J. Chem. Phys.},\n  year = {2020},\n}"
         );
     }
 

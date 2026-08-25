@@ -117,6 +117,12 @@ enum Commands {
         /// Export as LaTeX \bibitem entries instead of BibTeX
         #[arg(long)]
         bibitem: bool,
+        /// Do not rewrite recognized journal names to REVTeX/apsrev macros/abbreviations
+        #[arg(long)]
+        no_revtex_journals: bool,
+        /// Use REVTeX/apsrev journal macros in BibTeX output (now the default)
+        #[arg(long, hide = true)]
+        revtex_journals: bool,
         /// Export items in this subcollection (overrides `collections use`)
         #[arg(long)]
         subcollection: Option<String>,
@@ -265,9 +271,17 @@ fn main() {
         Commands::Export {
             identifiers,
             bibitem,
+            no_revtex_journals,
+            revtex_journals: _,
             subcollection,
             tag,
-        } => commands::export::run(identifiers, subcollection, tag, bibitem),
+        } => commands::export::run(
+            identifiers,
+            subcollection,
+            tag,
+            bibitem,
+            !no_revtex_journals,
+        ),
         Commands::Sync => commands::sync::run(),
         Commands::Config => commands::config_cmd::run(),
         Commands::Completions { shell } => commands::completions::run(shell),

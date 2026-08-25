@@ -25,3 +25,11 @@ terminal_size = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.release]
+debug = 0
+strip = "symbols"
