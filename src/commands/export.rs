@@ -362,7 +362,9 @@ fn format_bibitem(item: &ApiItem, citekey: &str) -> String {
 }
 
 fn aps_reference(item: &ApiItem) -> String {
-    if let Some(arxiv) = arxiv_id(item) {
+    if item.item_type() != "journalArticle"
+        && let Some(arxiv) = arxiv_id(item)
+    {
         return finish_reference(join_nonempty(vec![
             creators(item),
             Some(format!("arXiv:{}", arxiv)),
@@ -383,29 +385,46 @@ fn aps_journal_article(item: &ApiItem) -> String {
     let mut chunks = Vec::new();
     chunks.extend(creators(item));
 
-    if let Some(journal) =
-        field(item, "journalAbbreviation").or_else(|| field(item, "publicationTitle"))
-    {
-        chunks.push(latex_escape(&journal));
-    } else if let Some(title) = field(item, "title") {
-        chunks.push(format!("\\emph{{{}}}", latex_escape(&title)));
-    }
-
-    if let Some(volume) = field(item, "volume") {
-        chunks.push(format!("\\textbf{{{}}}", latex_escape(&volume)));
-    }
-    if let Some(locator) = field(item, "pages").or_else(|| field(item, "articleNumber")) {
-        chunks.push(latex_escape(&locator));
-    }
-    if let Some(year) = year(item) {
-        if let Some(last) = chunks.last_mut() {
-            last.push_str(&format!(" ({})", latex_escape(&year)));
-        } else {
-            chunks.push(format!("({})", latex_escape(&year)));
+    if let Some(title) = field(item, "title") {
+        let title = strip_trailing_periods(&title);
+        if !title.is_empty() {
+            chunks.push(latex_escape(&title));
         }
     }
 
+    if let Some(citation) = aps_journal_citation(item) {
+        chunks.push(hyperlink_if_available(item, &citation));
+    } else if let Some(arxiv) = arxiv_id(item) {
+        chunks.push(format!("arXiv:{}", latex_escape(&arxiv)));
+    }
+
     finish_reference(chunks.join(", "))
+}
+
+fn aps_journal_citation(item: &ApiItem) -> Option<String> {
+    let mut citation = aps_journal_name(item)?;
+
+    if let Some(volume) = field(item, "volume") {
+        citation.push_str(&format!(" \\textbf{{{}}}", latex_escape(&volume)));
+    }
+    if let Some(locator) = field(item, "pages").or_else(|| field(item, "articleNumber")) {
+        citation.push_str(&format!(", {}", latex_escape(&locator)));
+    }
+    if let Some(year) = year(item) {
+        citation.push_str(&format!(" ({})", latex_escape(&year)));
+    }
+
+    Some(citation)
+}
+
+fn aps_journal_name(item: &ApiItem) -> Option<String> {
+    field(item, "journalAbbreviation")
+        .or_else(|| {
+            field(item, "publicationTitle")
+                .and_then(|journal| aps_journal_abbreviation_for_text(&journal).map(str::to_string))
+        })
+        .or_else(|| field(item, "publicationTitle"))
+        .map(|journal| latex_escape(&journal))
 }
 
 fn aps_book(item: &ApiItem) -> String {
@@ -515,6 +534,69 @@ fn publisher_parenthetical(item: &ApiItem) -> Option<String> {
         parts.push(latex_escape(&year));
     }
     Some(format!("({})", parts.join(", ")))
+}
+
+fn hyperlink_if_available(item: &ApiItem, text: &str) -> String {
+    reference_url(item)
+        .map(|url| format!("\\href{{{}}}{{{}}}", latex_escape_url(&url), text))
+        .unwrap_or_else(|| text.to_string())
+}
+
+fn reference_url(item: &ApiItem) -> Option<String> {
+    field(item, "DOI")
+        .or_else(|| field(item, "doi"))
+        .map(|doi| doi_url(&doi))
+        .or_else(|| field(item, "url"))
+}
+
+fn doi_url(doi: &str) -> String {
+    let doi = doi.trim();
+    let lower = doi.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        doi.to_string()
+    } else if lower.starts_with("doi:") {
+        format!("https://doi.org/{}", doi[4..].trim())
+    } else {
+        format!("https://doi.org/{}", doi)
+    }
+}
+
+fn aps_journal_abbreviation_for_text(text: &str) -> Option<&'static str> {
+    match normalize_journal_name(text).as_str() {
+        "prl" | "physicalreviewletters" | "physrevlett" => Some("Phys. Rev. Lett."),
+        "pr" | "physicalreview" | "physrev" => Some("Phys. Rev."),
+        "pra" | "physicalreviewa" | "physreva" => Some("Phys. Rev. A"),
+        "prb" | "physicalreviewb" | "physrevb" => Some("Phys. Rev. B"),
+        "prc" | "physicalreviewc" | "physrevc" => Some("Phys. Rev. C"),
+        "prd" | "physicalreviewd" | "physrevd" => Some("Phys. Rev. D"),
+        "pre" | "physicalreviewe" | "physreve" => Some("Phys. Rev. E"),
+        "rmp" | "reviewsofmodernphysics" | "revmodphys" => Some("Rev. Mod. Phys."),
+        "apl" | "appliedphysicsletters" | "applphyslett" => Some("Appl. Phys. Lett."),
+        "jap" | "journalofappliedphysics" | "japplphys" => Some("J. Appl. Phys."),
+        "jmp" | "journalofmathematicalphysics" | "jmathphys" => Some("J. Math. Phys."),
+        "journalofchemicalphysics" | "thejournalofchemicalphysics" | "jchemphys" => {
+            Some("J. Chem. Phys.")
+        }
+        "pf" | "physicsoffluids" | "physfluids" => Some("Phys. Fluids"),
+        "pp" | "physicsofplasmas" | "physplasmas" => Some("Phys. Plasmas"),
+        "rsi" | "reviewofscientificinstruments" | "revsciinstrum" | "revsciinst" => {
+            Some("Rev. Sci. Instrum.")
+        }
+        "pl" | "physicsletters" | "physlett" => Some("Phys. Lett."),
+        "pla" | "physicslettersa" | "physletta" => Some("Phys. Lett. A"),
+        "plb" | "physicslettersb" | "physlettb" => Some("Phys. Lett. B"),
+        "scipostphysics" | "scipostphys" => Some("SciPost Phys."),
+        "scipostphysicscore" | "scipostphyscore" => Some("SciPost Phys. Core"),
+        _ => None,
+    }
+}
+
+fn strip_trailing_periods(input: &str) -> String {
+    let mut text = input.trim_end();
+    while text.ends_with('.') {
+        text = text[..text.len() - 1].trim_end();
+    }
+    text.to_string()
 }
 
 fn field(item: &ApiItem, name: &str) -> Option<String> {
@@ -777,7 +859,32 @@ mod tests {
 
         assert_eq!(
             format_bibitem(&item, "Lovelace2020"),
-            "\\bibitem{Lovelace2020} A. M. Lovelace and A. Turing, J. Name, \\textbf{12}, 4-9 (2020)."
+            "\\bibitem{Lovelace2020} A. M. Lovelace and A. Turing, A \\& B, \\href{https://doi.org/10.1000/test_1}{J. Name \\textbf{12}, 4-9 (2020)}."
+        );
+    }
+
+    #[test]
+    fn abbreviates_and_hyperlinks_physical_review_bibitem_journal_block() {
+        let item = ApiItem {
+            key: "PRL12345".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "itemType": "journalArticle",
+                "title": "A discovery.",
+                "date": "2024",
+                "publicationTitle": "Physical Review Letters",
+                "volume": "132",
+                "pages": "123456",
+                "DOI": "10.1103/PhysRevLett.132.123456",
+                "creators": [
+                    {"creatorType": "author", "firstName": "Jane", "lastName": "Doe"}
+                ]
+            }),
+        };
+
+        assert_eq!(
+            format_bibitem(&item, "Doe2024"),
+            "\\bibitem{Doe2024} J. Doe, A discovery, \\href{https://doi.org/10.1103/PhysRevLett.132.123456}{Phys. Rev. Lett. \\textbf{132}, 123456 (2024)}."
         );
     }
 

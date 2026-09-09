@@ -125,6 +125,11 @@ abbreviations, e.g. `journal = prb,` instead of
 `journal = {Physical Review B},`. Pass `--no-revtex-journals` to preserve
 Zotero's original journal strings for a portable non-REVTeX export.
 
+Pass `--bibitem` to export local LaTeX `\bibitem` entries in APS style. Journal
+articles are rendered as `J. Doe, Title, Journal No, Pages (Year)`, with the
+journal/volume/pages/year block hyperlinked through the DOI (or URL) when one is
+available.
+
 ## Neovim integration
 
 The Neovim plugin is a thin editor wrapper around the `zotero` executable.
