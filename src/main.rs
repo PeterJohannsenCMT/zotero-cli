@@ -4,6 +4,7 @@ mod config;
 mod crossref;
 mod display;
 mod editable_item;
+mod http;
 mod keywords;
 mod storage;
 mod sync;

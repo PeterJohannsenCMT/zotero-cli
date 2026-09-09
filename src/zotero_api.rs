@@ -1,12 +1,11 @@
 use anyhow::{Context, Result, anyhow, bail};
-use reqwest::blocking::{Client as HttpClient, Response};
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use crate::config::Config;
+use crate::http::{self, HttpClient};
 use crate::tagging;
 
 const PAGE_LIMIT: usize = 100;
@@ -146,27 +145,21 @@ enum ApiSource {
     Web,
 }
 
-fn version_header(resp: &Response) -> Option<i64> {
-    resp.headers()
-        .get("last-modified-version")
-        .or_else(|| resp.headers().get("zotero-library-version"))
-        .and_then(|v| v.to_str().ok())
+fn version_header(resp: &ureq::Response) -> Option<i64> {
+    resp.header("last-modified-version")
+        .or_else(|| resp.header("zotero-library-version"))
         .and_then(|v| v.parse::<i64>().ok())
 }
 
 impl ZoteroClient {
     pub fn web(config: &Config) -> Result<Self> {
-        let mut headers = HeaderMap::new();
-        headers.insert("Zotero-API-Version", HeaderValue::from_static("3"));
-        headers.insert(
-            "Zotero-API-Key",
-            HeaderValue::from_str(&config.api_key).context("invalid API key")?,
+        let http = HttpClient::new(
+            "zotero-cli/0.1",
+            vec![
+                ("Zotero-API-Version".to_string(), "3".to_string()),
+                ("Zotero-API-Key".to_string(), config.api_key.clone()),
+            ],
         );
-        let http = HttpClient::builder()
-            .default_headers(headers)
-            .user_agent("zotero-cli/0.1")
-            .build()
-            .context("building HTTP client")?;
         Ok(Self {
             http,
             api_root: WEB_API_ROOT.to_string(),
@@ -177,13 +170,10 @@ impl ZoteroClient {
     }
 
     pub fn local(config: &Config) -> Result<Self> {
-        let mut headers = HeaderMap::new();
-        headers.insert("Zotero-API-Version", HeaderValue::from_static("3"));
-        let http = HttpClient::builder()
-            .default_headers(headers)
-            .user_agent("zotero-cli/0.1")
-            .build()
-            .context("building HTTP client")?;
+        let http = HttpClient::new(
+            "zotero-cli/0.1",
+            vec![("Zotero-API-Version".to_string(), "3".to_string())],
+        );
         Ok(Self {
             http,
             api_root: LOCAL_API_ROOT.to_string(),
@@ -269,16 +259,16 @@ impl ZoteroClient {
         let mut version = None;
         loop {
             let url = self.paginated_url(path, extra_query, start);
-            let resp = self.http.get(&url).send().context("request failed")?;
+            let resp = http::response(self.http.get(&url).call()).context("request failed")?;
             let status = resp.status();
-            if !status.is_success() {
-                let body = resp.text().unwrap_or_default();
+            if !http::is_success(status) {
+                let body = resp.into_string().unwrap_or_default();
                 bail!("GET {} failed: {} {}", path, status, body);
             }
             if version.is_none() {
                 version = version_header(&resp);
             }
-            let batch: Vec<Value> = resp.json().context("parsing JSON response")?;
+            let batch: Vec<Value> = resp.into_json().context("parsing JSON response")?;
             let got = batch.len();
             results.extend(batch);
             if self.is_local() || got < PAGE_LIMIT {
@@ -328,13 +318,13 @@ impl ZoteroClient {
 
     fn get_collection_once(&self, key: &str) -> Result<Collection> {
         let url = format!("{}/collections/{}?format=json", self.base_url, key);
-        let resp = self.http.get(&url).send().context("request failed")?;
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
         let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
+        if !http::is_success(status) {
+            let body = resp.into_string().unwrap_or_default();
             bail!("fetching collection failed: {} {}", status, body);
         }
-        resp.json().context("parsing collection response")
+        resp.into_json().context("parsing collection response")
     }
 
     /// Fetch a single item's current state directly from the server.
@@ -344,13 +334,13 @@ impl ZoteroClient {
 
     fn get_item_once(&self, key: &str) -> Result<ApiItem> {
         let url = format!("{}/items/{}?format=json", self.base_url, key);
-        let resp = self.http.get(&url).send().context("request failed")?;
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
         let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
+        if !http::is_success(status) {
+            let body = resp.into_string().unwrap_or_default();
             bail!("fetching item failed: {} {}", status, body);
         }
-        resp.json().context("parsing item response")
+        resp.into_json().context("parsing item response")
     }
 
     /// Keys of items/collections/tags permanently deleted since `since`.
@@ -363,11 +353,11 @@ impl ZoteroClient {
 
     fn deleted_since_once(&self, since: i64) -> Result<Value> {
         let url = format!("{}/deleted?since={}", self.base_url, since);
-        let resp = self.http.get(&url).send().context("request failed")?;
-        if !resp.status().is_success() {
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
+        if !http::is_success(resp.status()) {
             bail!("GET /deleted failed: {}", resp.status());
         }
-        resp.json().context("parsing deleted response")
+        resp.into_json().context("parsing deleted response")
     }
 
     pub fn item_template(&self, item_type: &str) -> Result<Value> {
@@ -383,11 +373,11 @@ impl ZoteroClient {
             self.api_root,
             urlencoding::encode(item_type)
         );
-        let resp = self.http.get(&url).send().context("request failed")?;
-        if !resp.status().is_success() {
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
+        if !http::is_success(resp.status()) {
             bail!("failed to fetch item template for type '{}'", item_type);
         }
-        resp.json().context("parsing item template")
+        resp.into_json().context("parsing item template")
     }
 
     pub fn attachment_template(&self, link_mode: &str) -> Result<Value> {
@@ -403,14 +393,14 @@ impl ZoteroClient {
             self.api_root,
             urlencoding::encode(link_mode)
         );
-        let resp = self.http.get(&url).send().context("request failed")?;
-        if !resp.status().is_success() {
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
+        if !http::is_success(resp.status()) {
             bail!(
                 "failed to fetch attachment template for linkMode '{}'",
                 link_mode
             );
         }
-        resp.json().context("parsing attachment template")
+        resp.into_json().context("parsing attachment template")
     }
 
     /// Create one item; returns the created ApiItem (with key/version).
@@ -424,15 +414,11 @@ impl ZoteroClient {
     fn create_item_once(&self, item: Value) -> Result<ApiItem> {
         let url = format!("{}/items", self.base_url);
         let body = serde_json::json!([item]);
-        let resp = self
-            .http
-            .post(&url)
-            .json(&body)
-            .send()
-            .context("request failed")?;
+        let resp =
+            http::response(self.http.post(&url).send_json(body)).context("request failed")?;
         let status = resp.status();
-        let text = resp.text().context("reading response body")?;
-        if !status.is_success() {
+        let text = resp.into_string().context("reading response body")?;
+        if !http::is_success(status) {
             bail!("creating item failed: {} {}", status, text);
         }
         let parsed: Value = serde_json::from_str(&text).context("parsing create response")?;
@@ -488,16 +474,18 @@ impl ZoteroClient {
             ("filesize", filesize.as_str()),
             ("mtime", mtime.as_str()),
         ];
-        let resp = self
-            .http
-            .post(&auth_url)
-            .header("If-None-Match", "*")
-            .form(&form)
-            .send()
-            .context("requesting Zotero upload authorization")?;
+        let resp = http::response(
+            self.http
+                .post(&auth_url)
+                .set("If-None-Match", "*")
+                .send_form(&form),
+        )
+        .context("requesting Zotero upload authorization")?;
         let status = resp.status();
-        let text = resp.text().context("reading upload authorization body")?;
-        if !status.is_success() {
+        let text = resp
+            .into_string()
+            .context("reading upload authorization body")?;
+        if !http::is_success(status) {
             bail!("upload authorization failed: {} {}", status, text);
         }
         let auth: Value = serde_json::from_str(&text).context("parsing upload authorization")?;
@@ -531,28 +519,30 @@ impl ZoteroClient {
         upload_body.extend_from_slice(&bytes);
         upload_body.extend_from_slice(suffix.as_bytes());
 
-        let upload_resp = HttpClient::new()
-            .post(upload_url)
-            .header(CONTENT_TYPE, content_type)
-            .body(upload_body)
-            .send()
-            .context("uploading PDF bytes")?;
+        let upload_http = HttpClient::new("zotero-cli/0.1", Vec::new());
+        let upload_resp = http::response(
+            upload_http
+                .post(upload_url)
+                .set("Content-Type", content_type)
+                .send_bytes(&upload_body),
+        )
+        .context("uploading PDF bytes")?;
         let upload_status = upload_resp.status();
-        if upload_status != reqwest::StatusCode::CREATED {
-            let body = upload_resp.text().unwrap_or_default();
+        if upload_status != 201 {
+            let body = upload_resp.into_string().unwrap_or_default();
             bail!("PDF upload failed: {} {}", upload_status, body);
         }
 
-        let register_resp = self
-            .http
-            .post(&auth_url)
-            .header("If-None-Match", "*")
-            .form(&[("upload", upload_key)])
-            .send()
-            .context("registering Zotero file upload")?;
+        let register_resp = http::response(
+            self.http
+                .post(&auth_url)
+                .set("If-None-Match", "*")
+                .send_form(&[("upload", upload_key)]),
+        )
+        .context("registering Zotero file upload")?;
         let register_status = register_resp.status();
-        if register_status != reqwest::StatusCode::NO_CONTENT {
-            let body = register_resp.text().unwrap_or_default();
+        if register_status != 204 {
+            let body = register_resp.into_string().unwrap_or_default();
             bail!(
                 "registering file upload failed: {} {}",
                 register_status,
@@ -573,16 +563,16 @@ impl ZoteroClient {
 
     fn update_item_once(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
         let url = format!("{}/items/{}", self.base_url, key);
-        let resp = self
-            .http
-            .patch(&url)
-            .header("If-Unmodified-Since-Version", version.to_string())
-            .json(&patch)
-            .send()
-            .context("request failed")?;
+        let resp = http::response(
+            self.http
+                .patch(&url)
+                .set("If-Unmodified-Since-Version", &version.to_string())
+                .send_json(patch),
+        )
+        .context("request failed")?;
         let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
+        if !http::is_success(status) {
+            let body = resp.into_string().unwrap_or_default();
             bail!("updating item failed: {} {}", status, body);
         }
         Ok(version_header(&resp).unwrap_or(version + 1))
@@ -598,15 +588,16 @@ impl ZoteroClient {
 
     fn delete_item_once(&self, key: &str, version: i64) -> Result<i64> {
         let url = format!("{}/items/{}", self.base_url, key);
-        let resp = self
-            .http
-            .delete(&url)
-            .header("If-Unmodified-Since-Version", version.to_string())
-            .send()
-            .context("request failed")?;
+        let resp = http::response(
+            self.http
+                .delete(&url)
+                .set("If-Unmodified-Since-Version", &version.to_string())
+                .call(),
+        )
+        .context("request failed")?;
         let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
+        if !http::is_success(status) {
+            let body = resp.into_string().unwrap_or_default();
             bail!("deleting item failed: {} {}", status, body);
         }
         Ok(version_header(&resp).unwrap_or(version + 1))
@@ -624,16 +615,16 @@ impl ZoteroClient {
 
     fn update_collection_once(&self, key: &str, version: i64, patch: Value) -> Result<i64> {
         let url = format!("{}/collections/{}", self.base_url, key);
-        let resp = self
-            .http
-            .patch(&url)
-            .header("If-Unmodified-Since-Version", version.to_string())
-            .json(&patch)
-            .send()
-            .context("request failed")?;
+        let resp = http::response(
+            self.http
+                .patch(&url)
+                .set("If-Unmodified-Since-Version", &version.to_string())
+                .send_json(patch),
+        )
+        .context("request failed")?;
         let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
+        if !http::is_success(status) {
+            let body = resp.into_string().unwrap_or_default();
             bail!("updating collection failed: {} {}", status, body);
         }
         Ok(version_header(&resp).unwrap_or(version + 1))
@@ -652,10 +643,10 @@ impl ZoteroClient {
 
     fn item_bibtex_once(&self, key: &str) -> Result<String> {
         let url = format!("{}/items/{}?format=bibtex", self.base_url, key);
-        let resp = self.http.get(&url).send().context("request failed")?;
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
         let status = resp.status();
-        let text = resp.text().context("reading response body")?;
-        if !status.is_success() {
+        let text = resp.into_string().context("reading response body")?;
+        if !http::is_success(status) {
             bail!(
                 "fetching bibtex for item {} failed: {} {}",
                 key,

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
-use reqwest::blocking::Client as HttpClient;
 use serde_json::Value;
+
+use crate::http::{self, HttpClient};
 
 /// Fetch raw CrossRef work metadata (the "message" object) for a DOI.
 pub fn fetch_work(doi: &str) -> Result<Value> {
@@ -12,22 +13,16 @@ pub fn fetch_work(doi: &str) -> Result<Value> {
         "https://api.crossref.org/works/{}",
         urlencoding::encode(doi)
     );
-    let http = HttpClient::builder()
-        .user_agent("zotero-cli/0.1 (mailto:noreply@example.com)")
-        .build()
-        .context("building HTTP client")?;
-    let resp = http
-        .get(&url)
-        .send()
-        .context("request to CrossRef failed")?;
-    if !resp.status().is_success() {
+    let http = HttpClient::new("zotero-cli/0.1 (mailto:noreply@example.com)", Vec::new());
+    let resp = http::response(http.get(&url).call()).context("request to CrossRef failed")?;
+    if !http::is_success(resp.status()) {
         bail!(
             "CrossRef lookup for DOI '{}' failed: {}",
             doi,
             resp.status()
         );
     }
-    let body: Value = resp.json().context("parsing CrossRef response")?;
+    let body: Value = resp.into_json().context("parsing CrossRef response")?;
     body.get("message")
         .cloned()
         .context("CrossRef response missing 'message' field")
