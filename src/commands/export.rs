@@ -57,6 +57,8 @@ pub fn run(
 
     let mut first = true;
     for item in &targets {
+        let enriched = enrich_arxiv_thesis(item);
+        let item = &enriched;
         let citekey = item.citation_key().unwrap_or_else(|| {
             // eprintln!(
             //     "warning: '{}' has no AuthorYear tag; using its raw key as the citekey",
@@ -70,6 +72,7 @@ pub fn run(
         } else {
             match read_client.item_bibtex(&item.key) {
                 Ok(bibtex) => {
+                    let bibtex = add_thesis_bibtex_metadata(&bibtex, item);
                     replace_citekey_and_filter_fields(&bibtex, &citekey, revtex_journals, item)
                 }
                 Err(err) => {
@@ -105,6 +108,178 @@ pub fn run(
 const BIBTEX_EXPORT_FIELDS: [&str; 7] = [
     "author", "title", "journal", "volume", "pages", "doi", "year",
 ];
+
+// arXiv imports are often stored as preprints even when the comments identify
+// a dissertation. Enrich only the export copy; never modify the user's library.
+fn enrich_arxiv_thesis(item: &ApiItem) -> ApiItem {
+    let mut enriched = item.clone();
+    if !matches!(item.item_type(), "preprint" | "manuscript" | "report") {
+        return enriched;
+    }
+    let Some(id) = arxiv_id(item) else {
+        return enriched;
+    };
+    let url = format!("https://arxiv.org/abs/{}", id);
+    let result = (|| -> Result<String> {
+        let response = crate::http::response(
+            ureq::get(&url)
+                .timeout(std::time::Duration::from_secs(10))
+                .call(),
+        )?;
+        if !crate::http::is_success(response.status()) {
+            anyhow::bail!("arXiv returned HTTP {}", response.status());
+        }
+        Ok(response.into_string()?)
+    })();
+    match result {
+        Ok(html) => {
+            apply_arxiv_thesis_metadata(&mut enriched, &html);
+        }
+        Err(error) => eprintln!("warning: could not check thesis metadata at {url}: {error}"),
+    }
+    enriched
+}
+
+fn apply_arxiv_thesis_metadata(item: &mut ApiItem, html: &str) {
+    if let Some((degree, university)) = thesis_from_arxiv_html(html) {
+        item.data["itemType"] = serde_json::json!("thesis");
+        item.data["thesisType"] = serde_json::json!(degree);
+        if let Some(university) = university {
+            item.data["university"] = serde_json::json!(university);
+        }
+    }
+}
+
+fn thesis_from_arxiv_html(html: &str) -> Option<(&'static str, Option<String>)> {
+    let comments = html.split("<td").skip(1).find_map(|cell| {
+        let (attributes, text) = cell.split_once('>')?;
+        if !attributes.split_whitespace().any(|word| word == "comments") {
+            return None;
+        }
+        Some(text.split_once("</td>")?.0)
+    })?;
+    let mut text = String::new();
+    let mut in_tag = false;
+    for ch in comments.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                text.push(' ');
+            }
+            _ if !in_tag => text.push(ch),
+            _ => {}
+        }
+    }
+    let text = text
+        .replace("&amp;", "&")
+        .replace("&#39;", "'")
+        .replace("&quot;", "\"")
+        .replace("&nbsp;", " ");
+    let lower = text.to_ascii_lowercase();
+    let degree = if [
+        "phd thesis",
+        "ph.d. thesis",
+        "doctoral thesis",
+        "doctoral dissertation",
+        "phd dissertation",
+        "ph.d. dissertation",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        "Ph.D. thesis"
+    } else if [
+        "master's thesis",
+        "masters thesis",
+        "master thesis",
+        "msc thesis",
+        "m.sc. thesis",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        "Master's thesis"
+    } else {
+        return None;
+    };
+    // Only accept an institution explicitly given as a separate comment field.
+    // Free-form prose and absent institution names should not be guessed.
+    let university = text
+        .split([',', ';'])
+        .skip(1)
+        .map(str::trim)
+        .find(|part| {
+            let lower = part.to_ascii_lowercase();
+            [
+                "university",
+                "universiteit",
+                "université",
+                "universität",
+                "institute of technology",
+            ]
+            .iter()
+            .any(|marker| lower.contains(marker))
+                && !lower.contains(" thesis")
+                && !lower.contains(" dissertation")
+        })
+        .map(str::to_string);
+    Some((degree, university))
+}
+
+fn add_thesis_bibtex_metadata(entry: &str, item: &ApiItem) -> String {
+    if item.item_type() != "thesis" {
+        return entry.to_string();
+    }
+    let Some(open) = entry.find('{') else {
+        return entry.to_string();
+    };
+    let Ok(close) = matching_entry_close(entry, open) else {
+        return entry.to_string();
+    };
+    let Some(comma) = entry[open + 1..close].find(',').map(|i| open + 1 + i) else {
+        return entry.to_string();
+    };
+    let existing = split_bibtex_fields(&entry[comma + 1..close]);
+    let mut additions = String::new();
+    for (name, value) in [
+        ("school", field(item, "university")),
+        ("type", field(item, "thesisType")),
+        ("url", field(item, "url")),
+        ("eprint", arxiv_id(item)),
+        ("archiveprefix", arxiv_id(item).map(|_| "arXiv".to_string())),
+    ] {
+        if let Some(value) = value
+            && !existing.iter().any(|f| {
+                f.split_once('=')
+                    .is_some_and(|(key, _)| key.trim().eq_ignore_ascii_case(name))
+            })
+        {
+            let value = if name == "url" {
+                latex_escape_url(&value)
+            } else {
+                latex_escape(&value)
+            };
+            additions.push_str(&format!("\n  {name} = {{{value}}},"));
+        }
+    }
+    let original_type = entry[..open].trim().to_ascii_lowercase();
+    let entry_type = if matches!(original_type.as_str(), "@misc" | "@unpublished") {
+        match field(item, "thesisType").as_deref() {
+            Some("Ph.D. thesis") => "@phdthesis",
+            Some("Master's thesis") => "@mastersthesis",
+            _ => &entry[..open],
+        }
+    } else {
+        &entry[..open]
+    };
+    let body = entry[open..close].trim_end();
+    let separator = if body.ends_with(',') { "" } else { "," };
+    format!(
+        "{entry_type}{body}{separator}{additions}\n{}",
+        &entry[close..]
+    )
+}
 
 const BIBTEX_THESIS_FIELDS: [&str; 14] = [
     "author",
@@ -448,12 +623,16 @@ fn aps_journal_citation(item: &ApiItem) -> Option<String> {
 }
 
 fn aps_journal_name(item: &ApiItem) -> Option<String> {
-    field(item, "journalAbbreviation")
-        .or_else(|| {
-            field(item, "publicationTitle")
-                .and_then(|journal| aps_journal_abbreviation_for_text(&journal).map(str::to_string))
-        })
-        .or_else(|| field(item, "publicationTitle"))
+    let journal_abbreviation = field(item, "journalAbbreviation");
+    let publication_title = field(item, "publicationTitle");
+
+    journal_abbreviation
+        .iter()
+        .chain(publication_title.iter())
+        .find_map(|journal| aps_journal_abbreviation_for_text(journal))
+        .map(str::to_string)
+        .or(journal_abbreviation)
+        .or(publication_title)
         .map(|journal| latex_escape(&journal))
 }
 
@@ -613,6 +792,32 @@ fn aps_journal_abbreviation_for_text(text: &str) -> Option<&'static str> {
         "prc" | "physicalreviewc" | "physrevc" => Some("Phys. Rev. C"),
         "prd" | "physicalreviewd" | "physrevd" => Some("Phys. Rev. D"),
         "pre" | "physicalreviewe" | "physreve" => Some("Phys. Rev. E"),
+        "prab" | "physicalreviewacceleratorsandbeams" | "physrevaccelbeams" => {
+            Some("Phys. Rev. Accel. Beams")
+        }
+        "prapplied" | "physicalreviewapplied" | "physrevapplied" | "physrevappl" => {
+            Some("Phys. Rev. Applied")
+        }
+        "prfluids" | "physicalreviewfluids" | "physrevfluids" => Some("Phys. Rev. Fluids"),
+        "prmaterials" | "physicalreviewmaterials" | "physrevmaterials" => {
+            Some("Phys. Rev. Materials")
+        }
+        "prper" | "physicalreviewphysicseducationresearch" | "physrevphyseducres" => {
+            Some("Phys. Rev. Phys. Educ. Res.")
+        }
+        "prresearch" | "physicalreviewresearch" | "physrevresearch" | "physrevres" => {
+            Some("Phys. Rev. Research")
+        }
+        "prstper"
+        | "physicalreviewspecialtopicsphysicseducationresearch"
+        | "physrevstphyseducres" => Some("Phys. Rev. ST Phys. Educ. Res."),
+        "prstab" | "physicalreviewspecialtopicsacceleratorsandbeams" | "physrevstaccelbeams" => {
+            Some("Phys. Rev. ST Accel. Beams")
+        }
+        "prx" | "physicalreviewx" | "physrevx" => Some("Phys. Rev. X"),
+        "prxenergy" | "physicalreviewxenergy" | "physrevxenergy" => Some("PRX Energy"),
+        "prxlife" | "physicalreviewxlife" | "physrevxlife" => Some("PRX Life"),
+        "prxquantum" | "physicalreviewxquantum" => Some("PRX Quantum"),
         "rmp" | "reviewsofmodernphysics" | "revmodphys" => Some("Rev. Mod. Phys."),
         "apl" | "appliedphysicsletters" | "applphyslett" => Some("Appl. Phys. Lett."),
         "jap" | "journalofappliedphysics" | "japplphys" => Some("J. Appl. Phys."),
@@ -688,19 +893,17 @@ fn creators(item: &ApiItem) -> Option<String> {
                 .trim();
             match (first.is_empty(), last.is_empty()) {
                 (true, true) => None,
-                (true, false) => Some(latex_escape(last)),
+                (true, false) => Some(latex_surname(last)),
                 (false, true) => Some(initials(first)),
-                (false, false) => Some(format!("{} {}", initials(first), latex_escape(last))),
+                (false, false) => Some(format!("{}~{}", initials(first), latex_surname(last))),
             }
         })
-        .take(11)
         .collect();
 
     match names.len() {
         0 => None,
         1 => Some(names[0].clone()),
         2 => Some(format!("{} and {}", names[0], names[1])),
-        11 => Some(format!("{}, et al.", names[..10].join(", "))),
         _ => Some(format!(
             "{}, and {}",
             names[..names.len() - 1].join(", "),
@@ -713,16 +916,24 @@ fn creators(item: &ApiItem) -> Option<String> {
     })
 }
 
+fn latex_surname(last_name: &str) -> String {
+    last_name
+        .split_whitespace()
+        .map(latex_escape)
+        .collect::<Vec<_>>()
+        .join("~")
+}
+
 fn initials(first_name: &str) -> String {
     first_name
         .split(|c: char| c.is_whitespace() || c == '-')
         .filter_map(|part| part.chars().find(|c| c.is_alphabetic()))
         .map(|ch| format!("{}.", ch.to_uppercase()))
         .collect::<Vec<String>>()
-        .join(" ")
+        .join("~")
 }
 
-fn arxiv_id(item: &ApiItem) -> Option<String> {
+pub(crate) fn arxiv_id(item: &ApiItem) -> Option<String> {
     let archive = field(item, "archive").unwrap_or_default();
     let archive_location = field(item, "archiveLocation");
     if archive.eq_ignore_ascii_case("arXiv") {
@@ -749,6 +960,7 @@ fn extract_arxiv_id(input: &str) -> Option<String> {
                 .map(|i| i + "arxiv.org/abs/".len())
         })?;
     let id: String = input[marker..]
+        .trim_start()
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '/'))
         .collect();
@@ -799,8 +1011,103 @@ fn latex_escape_citekey(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_bibitem, latex_escape, replace_citekey_and_filter_fields};
+    use super::{
+        add_thesis_bibtex_metadata, apply_arxiv_thesis_metadata, format_bibitem, latex_escape,
+        replace_citekey_and_filter_fields, thesis_from_arxiv_html,
+    };
     use crate::zotero_api::ApiItem;
+
+    #[test]
+    fn exports_an_arxiv_thesis_stored_as_a_preprint_in_both_formats() {
+        let mut item = ApiItem {
+            key: "THESIS".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "itemType": "preprint", "title": "Example dissertation", "date": "2020",
+                "extra": "arXiv:2001.01234", "url": "https://arxiv.org/abs/2001.01234",
+                "creators": [{"creatorType": "author", "firstName": "Jane", "lastName": "Doe"}]
+            }),
+        };
+        apply_arxiv_thesis_metadata(
+            &mut item,
+            "<td class=\"tablecell comments mathjax\">PhD Thesis, Example University, 2020</td>",
+        );
+        assert_eq!(
+            format_bibitem(&item, "doe2020"),
+            "\\bibitem{doe2020} J.~Doe, \\emph{Example dissertation}, Ph.D. thesis, Example University, 2020, \\href{https://arxiv.org/abs/2001.01234}{arXiv:2001.01234}."
+        );
+        let bibtex = add_thesis_bibtex_metadata(
+            "@misc{old, author = {Doe, Jane}, title = {Example dissertation}, year = {2020},}",
+            &item,
+        );
+        let exported = replace_citekey_and_filter_fields(&bibtex, "doe2020", false, &item).unwrap();
+        assert!(exported.starts_with("@phdthesis{doe2020,"));
+        assert!(exported.contains("school = {Example University}"));
+        assert!(exported.contains("type = {Ph.D. thesis}"));
+    }
+
+    #[test]
+    fn recognizes_explicit_arxiv_thesis_comments() {
+        for (comments, degree, university) in [
+            (
+                "PhD Thesis (174 pages), Ghent University, 2018, ISBN 978-9-4619761-4-7",
+                "Ph.D. thesis",
+                Some("Ghent University"),
+            ),
+            (
+                "Master's thesis; Example Institute of Technology; 2022",
+                "Master's thesis",
+                Some("Example Institute of Technology"),
+            ),
+            (
+                "Doctoral dissertation, Université A &amp; B, 2021",
+                "Ph.D. thesis",
+                Some("Université A & B"),
+            ),
+            ("Ph.D. thesis, 2023", "Ph.D. thesis", None),
+        ] {
+            let html = format!("<td class=\"tablecell comments mathjax\">{comments}</td>");
+            assert_eq!(
+                thesis_from_arxiv_html(&html),
+                Some((degree, university.map(str::to_string)))
+            );
+        }
+        assert_eq!(
+            thesis_from_arxiv_html(
+                "<p>This thesis presents...</p><td class=\"tablecell comments mathjax\">Published article, 12 pages</td>"
+            ),
+            None
+        );
+        assert_eq!(
+            thesis_from_arxiv_html(
+                "<td class=\"tablecell comments mathjax\">Discusses university research</td>"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn enriches_misc_bibtex_without_overwriting_existing_fields() {
+        let item = ApiItem {
+            key: "THESIS".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "itemType": "thesis", "thesisType": "Ph.D. thesis",
+                "university": "A & B University", "extra": "arXiv:2401.01234",
+                "url": "https://arxiv.org/abs/2401.01234"
+            }),
+        };
+        let entry =
+            "@misc{old, title = {Original {Title}}, type = {Custom doctorate}, year = {2024}}";
+        let enriched = add_thesis_bibtex_metadata(entry, &item);
+        let filtered = replace_citekey_and_filter_fields(&enriched, "new", false, &item).unwrap();
+        assert!(filtered.starts_with("@phdthesis{new,"));
+        assert!(filtered.contains("title = {Original {Title}}"));
+        assert!(filtered.contains("school = {A \\& B University}"));
+        assert!(filtered.contains("type = {Custom doctorate}"));
+        assert!(filtered.contains("eprint = {2401.01234}"));
+        assert!(filtered.contains("archiveprefix = {arXiv}"));
+    }
 
     #[test]
     fn preserves_bibtex_thesis_fields_and_entry_types() {
@@ -927,7 +1234,7 @@ mod tests {
 
         assert_eq!(
             format_bibitem(&item, "Lovelace2020"),
-            "\\bibitem{Lovelace2020} A. M. Lovelace and A. Turing, A \\& B, \\href{https://doi.org/10.1000/test_1}{J. Name \\textbf{12}, 4-9 (2020)}."
+            "\\bibitem{Lovelace2020} A.~M.~Lovelace and A.~Turing, A \\& B, \\href{https://doi.org/10.1000/test_1}{J. Name \\textbf{12}, 4-9 (2020)}."
         );
     }
 
@@ -952,7 +1259,86 @@ mod tests {
 
         assert_eq!(
             format_bibitem(&item, "Doe2024"),
-            "\\bibitem{Doe2024} J. Doe, A discovery, \\href{https://doi.org/10.1103/PhysRevLett.132.123456}{Phys. Rev. Lett. \\textbf{132}, 123456 (2024)}."
+            "\\bibitem{Doe2024} J.~Doe, A discovery, \\href{https://doi.org/10.1103/PhysRevLett.132.123456}{Phys. Rev. Lett. \\textbf{132}, 123456 (2024)}."
+        );
+    }
+
+    #[test]
+    fn abbreviates_current_aps_bibitem_journal_names() {
+        let item = ApiItem {
+            key: "PRX12345".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "itemType": "journalArticle",
+                "title": "A result",
+                "date": "2024",
+                "journalAbbreviation": "Physical Review X",
+                "publicationTitle": "Physical Review X",
+                "volume": "14",
+                "pages": "011001",
+                "creators": [
+                    {"creatorType": "author", "firstName": "Jane", "lastName": "Doe"}
+                ]
+            }),
+        };
+
+        assert_eq!(
+            format_bibitem(&item, "Doe2024"),
+            "\\bibitem{Doe2024} J.~Doe, A result, Phys. Rev. X \\textbf{14}, 011001 (2024)."
+        );
+    }
+
+    #[test]
+    fn bibitem_surnames_use_nonbreaking_spaces() {
+        let item = ApiItem {
+            key: "NAMES123".into(),
+            version: 1,
+            data: serde_json::json!({
+                "creators": [
+                    {"creatorType": "author", "firstName": "Ludwig", "lastName": " van  Beethoven "},
+                    {"creatorType": "author", "lastName": "de\tla\u{00a0}Cruz & Co"}
+                ]
+            }),
+        };
+        assert_eq!(
+            super::creators(&item).unwrap(),
+            "L.~van~Beethoven and de~la~Cruz~\\&~Co"
+        );
+        assert_eq!(item.data["creators"][0]["lastName"], " van  Beethoven ");
+    }
+
+    #[test]
+    fn formats_all_bibitem_authors_without_et_al() {
+        let item = ApiItem {
+            key: "MANY1234".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "itemType": "journalArticle",
+                "title": "Many authors",
+                "date": "2024",
+                "publicationTitle": "Physical Review Research",
+                "volume": "6",
+                "pages": "013001",
+                "creators": [
+                    {"creatorType": "author", "firstName": "Author", "lastName": "One"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Two"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Three"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Four"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Five"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Six"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Seven"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Eight"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Nine"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Ten"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Eleven"},
+                    {"creatorType": "author", "firstName": "Author", "lastName": "Twelve"}
+                ]
+            }),
+        };
+
+        assert_eq!(
+            format_bibitem(&item, "One2024"),
+            "\\bibitem{One2024} A.~One, A.~Two, A.~Three, A.~Four, A.~Five, A.~Six, A.~Seven, A.~Eight, A.~Nine, A.~Ten, A.~Eleven, and A.~Twelve, Many authors, Phys. Rev. Research \\textbf{6}, 013001 (2024)."
         );
     }
 
@@ -975,7 +1361,7 @@ mod tests {
 
         assert_eq!(
             format_bibitem(&item, "Dirac1999"),
-            "\\bibitem{Dirac1999} P. Dirac, \\emph{Quantum Mechanics}, (Academic Press, New York, 1999)."
+            "\\bibitem{Dirac1999} P.~Dirac, \\emph{Quantum Mechanics}, (Academic Press, New York, 1999)."
         );
     }
 
@@ -996,7 +1382,7 @@ mod tests {
         };
         assert_eq!(
             format_bibitem(&item, "claeys2018"),
-            "\\bibitem{claeys2018} P. W. Claeys, \\emph{Richardson-Gaudin models and broken integrability}, Ph.D. thesis, Ghent University, 2018, \\href{https://arxiv.org/abs/1809.04447}{arXiv:1809.04447}."
+            "\\bibitem{claeys2018} P.~W.~Claeys, \\emph{Richardson-Gaudin models and broken integrability}, Ph.D. thesis, Ghent University, 2018, \\href{https://arxiv.org/abs/1809.04447}{arXiv:1809.04447}."
         );
     }
 
@@ -1029,7 +1415,7 @@ mod tests {
 
         assert_eq!(
             format_bibitem(&item, "Smith2024"),
-            "\\bibitem{Smith2024} J. Smith, arXiv:2401.01234."
+            "\\bibitem{Smith2024} J.~Smith, arXiv:2401.01234."
         );
     }
 
