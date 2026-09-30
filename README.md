@@ -62,7 +62,8 @@ zotero collections current           # show the current default subcollection
 zotero collections clear             # return to the library top level by default
 zotero collections edit Optics "Optics & Photonics"   # rename a subcollection
 
-zotero add 10.1038/nphys1170         # look up a DOI on CrossRef and add it
+zotero add 10.1038/nphys1170         # look up a DOI and attach a PDF if CrossRef exposes one
+zotero add --nopdf 10.1038/nphys1170 # add metadata only; don't look for a PDF
 
 zotero export Smith2020 Doe2021             # print BibTeX for specific items
 zotero export --subcollection=Optics > optics.bib   # export a whole collection
@@ -72,6 +73,7 @@ zotero open Smith2020                # open the PDF for the item tagged Smith202
                                       # (falls back to the item's URL/DOI if no PDF)
 
 zotero edit Smith2020                # edit metadata in $EDITOR, saved back on exit
+zotero fetch-pdf Smith2020           # look up and attach a PDF for an existing item
 zotero remove Smith2020              # remove an item from your Zotero library
 
 zotero search majorana | zotero open   # open every matching PDF

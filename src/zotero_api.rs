@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::io::Read;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
@@ -550,6 +551,41 @@ impl ZoteroClient {
             );
         }
         Ok(version_header(&register_resp))
+    }
+
+    pub fn download_attachment_file(&self, attachment_key: &str) -> Result<Vec<u8>> {
+        self.with_read_fallback(
+            |client| client.download_attachment_file_once(attachment_key),
+            "downloading an attachment file",
+        )
+    }
+
+    fn download_attachment_file_once(&self, attachment_key: &str) -> Result<Vec<u8>> {
+        const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
+
+        let url = format!("{}/items/{}/file", self.base_url, attachment_key);
+        let resp = http::response(self.http.get(&url).call()).context("request failed")?;
+        let status = resp.status();
+        if !http::is_success(status) {
+            bail!(
+                "downloading attachment file failed: {} {}",
+                status,
+                resp.status_text()
+            );
+        }
+
+        let mut bytes = Vec::new();
+        resp.into_reader()
+            .take(MAX_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .context("reading attachment file")?;
+        if bytes.len() as u64 > MAX_FILE_BYTES {
+            bail!(
+                "attachment file exceeded {} MB",
+                MAX_FILE_BYTES / 1024 / 1024
+            );
+        }
+        Ok(bytes)
     }
 
     /// Partially update an item. `patch` should contain only the changed

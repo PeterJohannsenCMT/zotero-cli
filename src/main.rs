@@ -67,17 +67,20 @@ enum Commands {
     },
     /// Add an item to your library from a DOI, or enter one by hand
     Add {
-        /// The DOI to look up (e.g. 10.1000/xyz123). Omit and pass --manual
+        /// The DOI to look up (e.g. 10.1000/xyz123). Use manual or --manual
         /// for items CrossRef doesn't have (books, webpages, datasets, ...).
         doi: Option<String>,
         /// Skip the CrossRef lookup and enter the item's metadata by hand in
         /// $EDITOR
         #[arg(long)]
         manual: bool,
-        /// Zotero item type to create in --manual mode, e.g. book,
+        /// Zotero item type to create in manual mode, e.g. book,
         /// bookSection, webpage, report, thesis, dataset, conferencePaper
         #[arg(long, default_value = "journalArticle")]
         r#type: String,
+        /// Do not try to download and attach a PDF after DOI lookup
+        #[arg(long)]
+        nopdf: bool,
     },
     /// Open an item's PDF (or its URL/DOI if no PDF is attached)
     Open {
@@ -108,6 +111,12 @@ enum Commands {
         identifier: String,
         /// Path to the PDF file
         pdf: std::path::PathBuf,
+    },
+    /// Look up and attach a PDF for an existing item
+    FetchPdf {
+        /// AuthorYear tag or raw Zotero item key. If omitted, identifiers are
+        /// read one per line from stdin (e.g. piped from `zotero search`).
+        identifier: Option<String>,
     },
     /// Export items as BibTeX, with citekeys matching their AuthorYear tag
     Export {
@@ -252,14 +261,15 @@ fn main() {
             doi,
             manual,
             r#type,
+            nopdf,
         } => {
-            if manual {
+            if manual || doi.as_deref() == Some("manual") {
                 commands::add::run_manual(&r#type)
             } else {
                 match doi {
-                    Some(doi) => commands::add::run(&doi),
+                    Some(doi) => commands::add::run(&doi, !nopdf),
                     None => Err(anyhow::anyhow!(
-                        "either pass a DOI to look up, or --manual to enter an item by hand"
+                        "either pass a DOI to look up, or `manual` to enter an item by hand"
                     )),
                 }
             }
@@ -269,6 +279,7 @@ fn main() {
         Commands::Edit { identifier } => run_for_each(identifier, commands::edit::run),
         Commands::Remove { identifier } => commands::remove::run(&identifier),
         Commands::AttachPdf { identifier, pdf } => commands::attach::pdf(&identifier, &pdf),
+        Commands::FetchPdf { identifier } => run_for_each(identifier, commands::attach::find_pdf),
         Commands::Export {
             identifiers,
             bibitem,

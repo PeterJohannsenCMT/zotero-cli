@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
 use crate::cache::Cache;
@@ -45,7 +45,6 @@ pub fn run(identifier: &str) -> Result<()> {
             && let Some(path) = attachment.data.get("path").and_then(Value::as_str)
         {
             let path = path.strip_prefix("attachment:").unwrap_or(path);
-            println!("Opening {}", path);
             open::that(path)?;
             return Ok(());
         }
@@ -54,18 +53,25 @@ pub fn run(identifier: &str) -> Result<()> {
         let data_dir = storage::find_data_dir(&config)?;
         let path = storage::resolve_attachment_path(&data_dir, &attachment.key, filename);
         if !path.exists() {
-            bail!(
-                "expected attachment at {} but it doesn't exist (has it synced locally?)",
-                path.display()
-            );
+            let web_client = ZoteroClient::web(&config)?;
+            let bytes = web_client
+                .download_attachment_file(&attachment.key)
+                .with_context(|| format!("downloading attachment file {}", attachment.key))?;
+            if !bytes.starts_with(b"%PDF-") {
+                bail!("downloaded attachment does not look like a PDF");
+            }
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         }
-        println!("Opening {}", path.display());
         open::that(&path)?;
         return Ok(());
     }
 
     if let Some(url) = item.url_or_doi() {
-        println!("No PDF attachment found; opening {}", url);
+        eprintln!("warning: no PDF attachment found; opening URL/DOI instead");
         open::that(&url)?;
         return Ok(());
     }

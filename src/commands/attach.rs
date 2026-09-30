@@ -1,10 +1,13 @@
 use anyhow::{Context, Result, anyhow, bail};
+use serde_json::Value;
 use std::path::Path;
 
 use crate::cache::Cache;
+use crate::commands::add;
 use crate::config::Config;
+use crate::crossref;
 use crate::sync;
-use crate::zotero_api::ZoteroClient;
+use crate::zotero_api::{ApiItem, ZoteroClient};
 
 pub fn pdf(identifier: &str, pdf_path: &Path) -> Result<()> {
     if !pdf_path.exists() {
@@ -71,11 +74,67 @@ pub fn pdf(identifier: &str, pdf_path: &Path) -> Result<()> {
     cache.items.insert(fresh.key.clone(), fresh);
     cache.save()?;
 
-    println!(
-        "Attached '{}' to '{}' (attachment key {}).",
-        filename,
-        item.title(),
-        created.key
-    );
     Ok(())
+}
+
+pub fn find_pdf(identifier: &str) -> Result<()> {
+    let config = Config::load()?;
+    let read_client = ZoteroClient::read_preferred(&config)?;
+    // PDF uploads use Zotero's Web API storage authorization/register flow;
+    // keep this command on the Web client like `attach-pdf`.
+    let write_client = ZoteroClient::web(&config)?;
+    let mut cache = Cache::load()?;
+    sync::sync_library(&read_client, &write_client, &mut cache)?;
+
+    let item = cache
+        .find_by_identifier(identifier)
+        .ok_or_else(|| anyhow!("no item found for '{}'", identifier))?
+        .clone();
+    if item.item_type() == "attachment"
+        || item.item_type() == "note"
+        || item.parent_item().is_some()
+    {
+        bail!("'{}' is not a top-level reference item", identifier);
+    }
+
+    if pdf_attachment(&cache, &item).is_some() {
+        return Ok(());
+    }
+
+    let doi = item
+        .data
+        .get("DOI")
+        .and_then(Value::as_str)
+        .filter(|doi| !doi.trim().is_empty())
+        .ok_or_else(|| anyhow!("'{}' has no DOI to look up on CrossRef", item.title()))?;
+
+    let work = crossref::fetch_work(doi)?;
+    let pdf_candidates = add::pdf_candidates_for_work(doi, &work);
+    if pdf_candidates.is_empty() {
+        bail!("could not find a direct PDF URL for this DOI");
+    }
+    let tag = item.citation_key().unwrap_or_else(|| item.key.clone());
+    let attachment =
+        add::download_and_attach_pdf(&read_client, &write_client, &item, &tag, &pdf_candidates)
+            .with_context(|| format!("attaching PDF to '{}'", item.title()))?;
+
+    cache
+        .items
+        .insert(attachment.key.clone(), attachment.clone());
+    cache.save()?;
+
+    Ok(())
+}
+
+fn pdf_attachment<'a>(cache: &'a Cache, item: &ApiItem) -> Option<&'a ApiItem> {
+    cache.items.values().find(|candidate| {
+        candidate.parent_item() == Some(item.key.as_str())
+            && candidate.item_type() == "attachment"
+            && candidate
+                .data
+                .get("contentType")
+                .and_then(Value::as_str)
+                .map(|content_type| content_type == "application/pdf")
+                .unwrap_or(false)
+    })
 }

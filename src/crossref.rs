@@ -106,6 +106,27 @@ pub fn creators(work: &Value) -> Vec<CreatorName> {
         .unwrap_or_default()
 }
 
+/// A direct PDF URL advertised by CrossRef, usually intended for text/data
+/// mining. Many works do not expose one here; callers should treat `None` as
+/// normal rather than an error.
+pub fn pdf_urls(work: &Value) -> Vec<String> {
+    work.get("link")
+        .and_then(Value::as_array)
+        .map(|links| {
+            links
+                .iter()
+                .filter(|link| {
+                    link.get("content-type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|ct| ct.eq_ignore_ascii_case("application/pdf"))
+                })
+                .filter_map(|link| link.get("URL").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Fill a Zotero item template (from /items/new) with CrossRef metadata.
 pub fn fill_item_template(mut template: Value, work: &Value) -> Value {
     let item_type = item_type_for_work(work);
@@ -202,7 +223,7 @@ pub fn fill_item_template(mut template: Value, work: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::fill_item_template;
+    use super::{fill_item_template, pdf_urls};
 
     #[test]
     fn uses_article_number_as_pages_when_page_is_missing() {
@@ -235,5 +256,17 @@ mod tests {
 
         let item = fill_item_template(template, &work);
         assert_eq!(item["pages"], "12-34");
+    }
+
+    #[test]
+    fn finds_crossref_pdf_link() {
+        let work = serde_json::json!({
+            "link": [
+                {"content-type": "text/html", "URL": "https://example.test/page"},
+                {"content-type": "application/pdf", "URL": "https://example.test/paper.pdf"}
+            ]
+        });
+
+        assert_eq!(pdf_urls(&work), vec!["https://example.test/paper.pdf"]);
     }
 }

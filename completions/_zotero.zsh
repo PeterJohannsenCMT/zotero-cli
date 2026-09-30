@@ -35,12 +35,13 @@ _zotero() {
                 'list:List items in your library'
                 'search:Search your library, printing matching keys'
                 'collections:List or search your subcollections'
-                'add:Add an item to your library from a DOI'
+                'add:Add an item from a DOI or enter metadata manually'
                 'open:Open an item'\''s PDF (or its URL/DOI)'
                 'show:Show an item'\''s details'
                 'edit:Edit an item'\''s metadata in \$EDITOR'
                 'remove:Remove an item from your Zotero library'
                 'attach-pdf:Attach a PDF file to an item'
+                'fetch-pdf:Look up and attach a PDF for an existing item'
                 'export:Export items as BibTeX'
                 'sync:Force a sync with the Zotero API'
                 'config:Configure your Zotero API credentials'
@@ -50,7 +51,7 @@ _zotero() {
             ;;
         args)
             case $line[1] in
-                open|show|edit|remove)
+                open|show|edit|remove|fetch-pdf)
                     _arguments '1:paper key:_zotero_paper_keys'
                     ;;
                 list|search)
@@ -61,8 +62,9 @@ _zotero() {
                 add)
                     _arguments \
                         '--manual[Enter item metadata by hand in $EDITOR]' \
-                        '--type=[Zotero item type for --manual mode]:item type:(journalArticle book bookSection webpage report thesis dataset conferencePaper)' \
-                        '1:DOI:'
+                        '--type=[Zotero item type for manual mode]:item type:(journalArticle book bookSection webpage report thesis dataset conferencePaper)' \
+                        '--nopdf[Do not try to download and attach a PDF]' \
+                        '1:DOI or manual:(manual)'
                     ;;
                 attach-pdf)
                     _arguments \
