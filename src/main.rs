@@ -118,16 +118,16 @@ enum Commands {
         /// read one per line from stdin (e.g. piped from `zotero search`).
         identifier: Option<String>,
     },
-    /// Export items as BibTeX, with citekeys matching their AuthorYear tag
+    /// Export items as LaTeX \bibitem entries
     Export {
         /// AuthorYear tags or raw Zotero item keys to export. If omitted,
         /// identifiers are read one per line from stdin (e.g. piped from
         /// `zotero search`), or use --subcollection/--tag to select a set.
         identifiers: Vec<String>,
-        /// Export as LaTeX \bibitem entries instead of BibTeX
+        /// Export in BibTeX .bib format instead of as LaTeX \bibitem entries
         #[arg(long)]
-        bibitem: bool,
-        /// Do not rewrite recognized journal names to REVTeX/apsrev macros/abbreviations
+        bib: bool,
+        /// Do not rewrite recognized journal names in BibTeX output
         #[arg(long)]
         no_revtex_journals: bool,
         /// Use REVTeX/apsrev journal macros in BibTeX output (now the default)
@@ -284,18 +284,12 @@ fn main() {
         Commands::FetchPdf { identifier } => run_for_each(identifier, commands::attach::find_pdf),
         Commands::Export {
             identifiers,
-            bibitem,
+            bib,
             no_revtex_journals,
             revtex_journals: _,
             subcollection,
             tag,
-        } => commands::export::run(
-            identifiers,
-            subcollection,
-            tag,
-            bibitem,
-            !no_revtex_journals,
-        ),
+        } => commands::export::run(identifiers, subcollection, tag, bib, !no_revtex_journals),
         Commands::Sync => commands::sync::run(),
         Commands::CheckCitationKeys => commands::check_citation_keys::run(),
         Commands::Config => commands::config_cmd::run(),
@@ -348,4 +342,22 @@ pub(crate) fn read_identifiers_from_stdin() -> anyhow::Result<Vec<String>> {
         );
     }
     Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn export_uses_bibitem_format_by_default() {
+        let cli = Cli::try_parse_from(["zotero", "export", "smith2020"]).unwrap();
+        assert!(matches!(cli.command, Commands::Export { bib: false, .. }));
+    }
+
+    #[test]
+    fn export_bib_flag_selects_bibtex_format() {
+        let cli = Cli::try_parse_from(["zotero", "export", "--bib", "smith2020"]).unwrap();
+        assert!(matches!(cli.command, Commands::Export { bib: true, .. }));
+    }
 }

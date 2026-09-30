@@ -42,7 +42,7 @@ _zotero() {
                 'remove:Remove an item from your Zotero library'
                 'attach-pdf:Attach a PDF file to an item'
                 'fetch-pdf:Look up and attach a PDF for an existing item'
-                'export:Export items as BibTeX'
+                'export:Export items as LaTeX bibitem entries'
                 'sync:Force a sync with the Zotero API'
                 'check-citation-keys:Check for gaps in citation-key suffixes'
                 'config:Configure your Zotero API credentials'
@@ -74,8 +74,8 @@ _zotero() {
                     ;;
                 export)
                     _arguments \
-                        '--bibitem[Export as LaTeX bibitem entries instead of BibTeX]' \
-                        '--no-revtex-journals[Preserve Zotero journal strings instead of REVTeX/apsrev macros]' \
+                        '--bib[Export in BibTeX .bib format instead of as LaTeX bibitem entries]' \
+                        '--no-revtex-journals[Preserve Zotero journal strings in BibTeX output]' \
                         '--subcollection=[Export items in this subcollection]:collection:_zotero_collection_names' \
                         '--tag=[Export items with this tag]:tag:_zotero_paper_keys' \
                         '*:paper key:_zotero_paper_keys'

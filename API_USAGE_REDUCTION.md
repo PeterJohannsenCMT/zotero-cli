@@ -9,7 +9,7 @@ This document records a future plan for reducing calls to the online Zotero Web 
 - PDF attachment uploads still use the Zotero Web API storage authorization/register flow.
 - Most commands call `sync::sync_library`, which skips all network access when the cache is fresh.
 - The cache freshness window is currently hard-coded to 60 seconds in `src/sync.rs`.
-- Normal BibTeX export calls Zotero's BibTeX renderer once per exported item via `/items/{key}?format=bibtex`; `--bibitem` formats locally from cached data.
+- `zotero export --bib` calls Zotero's BibTeX renderer once per exported item via `/items/{key}?format=bibtex`; the default `\bibitem` format is generated locally from cached data.
 
 ## Goals
 
@@ -80,7 +80,7 @@ Expected benefit: fewer repeated incremental sync reads during normal shell work
 
 ### Phase 3: Cache or locally generate BibTeX exports
 
-Normal `zotero export` currently calls Zotero once per item to render BibTeX.
+`zotero export --bib` calls Zotero once per item to render BibTeX.
 
 Options:
 
@@ -89,7 +89,7 @@ Options:
    - Reuse cached BibTeX when the item version has not changed.
 
 2. Generate BibTeX locally from cached item data.
-   - Similar to the existing local `--bibitem` path.
+   - Similar to the default local `\bibitem` path.
    - Requires careful Zotero-to-BibTeX field mapping.
 
 3. Investigate whether Zotero supports batch BibTeX export for multiple selected item keys.

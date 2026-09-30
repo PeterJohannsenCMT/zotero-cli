@@ -65,9 +65,9 @@ zotero collections edit Optics "Optics & Photonics"   # rename a subcollection
 zotero add 10.1038/nphys1170         # look up a DOI and attach a PDF if CrossRef exposes one
 zotero add --nopdf 10.1038/nphys1170 # add metadata only; don't look for a PDF
 
-zotero export Smith2020 Doe2021             # print BibTeX for specific items
-zotero export --subcollection=Optics > optics.bib   # export a whole collection
-zotero search majorana | zotero export > refs.bib   # export search results
+zotero export Smith2020 Doe2021             # print LaTeX \bibitem entries
+zotero export --bib --subcollection=Optics > optics.bib   # export a whole collection as BibTeX
+zotero search majorana | zotero export --bib > refs.bib   # export search results as BibTeX
 
 zotero open Smith2020                # open the PDF for the item tagged Smith2020
                                       # (falls back to the item's URL/DOI if no PDF)
@@ -113,9 +113,9 @@ existing tags without displaying them.
 4-digit year (with an optional letter suffix) and show/match on it in
 preference to the raw item key.
 
-`zotero export` uses Zotero's own BibTeX rendering (so field formatting and
+`zotero export --bib` uses Zotero's own BibTeX rendering (so field formatting and
 escaping match a normal Zotero export) but always rewrites the citekey to
-the item's AuthorYear tag, so a `.bib` file pulled with `zotero export`
+the item's AuthorYear tag, so a `.bib` file pulled with `zotero export --bib`
 cites the same way `zotero open`/`edit` address the item. Items without an
 AuthorYear tag (no derivable author/year) fall back to their raw Zotero key,
 with a warning on stderr.
@@ -125,12 +125,12 @@ university (`school`), location, date, and DOI/URL/arXiv fields when supplied by
 Zotero's BibTeX renderer. The original BibTeX entry type is preserved, including
 `@phdthesis` and `@mastersthesis`.
 
-By default, recognized journal names are written as REVTeX/apsrev macros or
+In `--bib` output, recognized journal names are written as REVTeX/apsrev macros or
 abbreviations, e.g. `journal = prb,` instead of
 `journal = {Physical Review B},`. Pass `--no-revtex-journals` to preserve
 Zotero's original journal strings for a portable non-REVTeX export.
 
-Pass `--bibitem` to export local LaTeX `\bibitem` entries in APS style. Journal
+By default, `zotero export` emits local LaTeX `\bibitem` entries in APS style. Journal
 articles are rendered as `J. Doe, Title, Journal No, Pages (Year)`, with the
 journal/volume/pages/year block hyperlinked through the DOI (or URL) when one is
 available.
@@ -287,7 +287,7 @@ incremental and fast. Delete the cache file any time to force a full resync.
 
 [MIT](LICENSE)
 
-`zotero edit KEY` shows the fields used by BibTeX or `--bibitem` export for
+`zotero edit KEY` shows the fields used by BibTeX or `\bibitem` export for
 that item's type, plus `abstract`. The editor uses readable names: `journal`,
 `journal_abbreviation`, `thesis_type`, `university`, `book_title`, and
 `report_number`. `date` supplies the export year. Cataloguing fields, tags,

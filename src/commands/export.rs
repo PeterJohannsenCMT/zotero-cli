@@ -10,7 +10,7 @@ pub fn run(
     identifiers: Vec<String>,
     subcollection: Option<String>,
     tag: Option<String>,
-    bibitem: bool,
+    bib: bool,
     revtex_journals: bool,
 ) -> Result<()> {
     let config = Config::load()?;
@@ -67,9 +67,7 @@ pub fn run(
             item.key.clone()
         });
 
-        let entry = if bibitem {
-            Ok(format_bibitem(item, &citekey))
-        } else {
+        let entry = if bib {
             match read_client.item_bibtex(&item.key) {
                 Ok(bibtex) => {
                     let bibtex = add_thesis_bibtex_metadata(&bibtex, item);
@@ -81,6 +79,8 @@ pub fn run(
                     continue;
                 }
             }
+        } else {
+            Ok(format_bibitem(item, &citekey))
         };
 
         match entry {
