@@ -50,7 +50,7 @@ enum Commands {
         /// Only match against Zotero tags
         #[arg(long)]
         tags: Option<String>,
-        /// Only match against local keywords (set via `zotero edit`)
+        /// Only match against existing local keywords
         #[arg(long)]
         keywords: Option<String>,
         /// Only search items in this subcollection (overrides `collections use`)

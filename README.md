@@ -105,11 +105,9 @@ by another item in your library, a letter suffix is appended (`Smith2020a`,
 Every command (`list`, `open`, `edit`) also **backfills** this tag onto any
 existing item in your library that doesn't have one yet, the first time it
 sees that item — so items you added directly in Zotero get one too. This is
-written back to Zotero as a real tag (visible in the Zotero app itself), not
-just computed on the fly, which is what makes it possible to rename via
-`zotero edit`: the citation-key tag is just an entry in the item's `tags`
-list, so editing it there (or deleting/replacing it) changes what `zotero`
-matches the item by from then on.
+written back to Zotero as a real tag (visible in the Zotero app itself).
+To rename a citation-key tag, edit the tag in Zotero; the CLI editor preserves
+existing tags without displaying them.
 
 `zotero list`/`open`/`edit` look for a tag shaped like a name followed by a
 4-digit year (with an optional letter suffix) and show/match on it in
@@ -219,12 +217,9 @@ there is no word under the cursor.
 
 ## Local keywords
 
-`zotero edit` includes a `keywords` field (a list of arbitrary length) that
-has nothing to do with Zotero's own `tags` field. Since Zotero's item schema
-has no such field, keywords aren't synced through the Web API — they're kept
-in a local file, `keywords.json`, next to `config.toml` (i.e. *not* in the
-disposable `cache.json` — deleting the cache to force a resync won't lose
-them). Search for them with `zotero search --keywords <term>`.
+Existing local keywords remain in `keywords.json`, next to `config.toml`,
+and can be searched with `zotero search --keywords <term>`. They are not synced
+to Zotero. The citation editor hides and preserves these keywords.
 
 ## Shell completion (zsh)
 
@@ -291,3 +286,58 @@ incremental and fast. Delete the cache file any time to force a full resync.
 ## License
 
 [MIT](LICENSE)
+
+`zotero edit KEY` shows the fields used by BibTeX or `--bibitem` export for
+that item's type, plus `abstract`. The editor uses readable names: `journal`,
+`journal_abbreviation`, `thesis_type`, `university`, `book_title`, and
+`report_number`. `date` supplies the export year. Cataloguing fields, tags,
+local keywords, and non-author creator roles are hidden and preserved on save.
+
+Journal articles use this form (prefilled for `edit`, blank for manual add):
+
+```toml
+title = "Example article"
+journal = "Physical Review B"
+journal_abbreviation = "Phys. Rev. B"
+date = "2026"
+volume = "114"
+pages = "012345"
+doi = "10.1103/example"
+url = ""
+abstract = "Article summary."
+
+[authors]
+names = [
+    { first = "Ada", last = "Lovelace" },
+    { first = "Ludwig", last = "van Beethoven" },
+    { name = "Research Collaboration" },
+]
+```
+
+Create an item with `zotero add manual` or `zotero add --manual` (defaults
+to `journalArticle`). Use `--type thesis` for a thesis or `--type book` for a
+book. The thesis form is:
+
+```toml
+title = ""
+thesis_type = ""       # e.g. "Ph.D. thesis"
+university = ""
+date = ""
+place = ""
+doi = ""
+url = ""
+arxiv_id = ""
+abstract = ""
+
+[authors]
+names = [
+    { first = "", last = "" },
+]
+```
+
+Enter authors in publication order. Use `name` for institutional authors.
+`arxiv_id` maps to Zotero's existing archive metadata or a labelled entry in
+Extra, preserving unrelated metadata. DOI also uses Extra when the Zotero
+item template has no dedicated DOI field. Other fields are shown only when
+supported by the selected item type. Save and exit to create the item; an
+empty title aborts creation.
