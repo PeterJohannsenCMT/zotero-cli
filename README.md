@@ -120,6 +120,11 @@ cites the same way `zotero open`/`edit` address the item. Items without an
 AuthorYear tag (no derivable author/year) fall back to their raw Zotero key,
 with a warning on stderr.
 
+For theses, regular BibTeX export also preserves Zotero's degree type (`type`),
+university (`school`), location, date, and DOI/URL/arXiv fields when supplied by
+Zotero's BibTeX renderer. The original BibTeX entry type is preserved, including
+`@phdthesis` and `@mastersthesis`.
+
 By default, recognized journal names are written as REVTeX/apsrev macros or
 abbreviations, e.g. `journal = prb,` instead of
 `journal = {Physical Review B},`. Pass `--no-revtex-journals` to preserve
@@ -129,6 +134,12 @@ Pass `--bibitem` to export local LaTeX `\bibitem` entries in APS style. Journal
 articles are rendered as `J. Doe, Title, Journal No, Pages (Year)`, with the
 journal/volume/pages/year block hyperlinked through the DOI (or URL) when one is
 available.
+
+Thesis entries include the title, thesis type, university, and year, followed by
+an arXiv link when present. Store dissertations as Zotero `thesis` items and fill
+in `thesisType` and `university`; an arXiv identifier does not override thesis
+metadata. If the degree is missing, export uses `Thesis` rather than assuming a
+doctorate.
 
 ## Neovim integration
 

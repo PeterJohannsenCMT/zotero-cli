@@ -106,6 +106,23 @@ const BIBTEX_EXPORT_FIELDS: [&str; 7] = [
     "author", "title", "journal", "volume", "pages", "doi", "year",
 ];
 
+const BIBTEX_THESIS_FIELDS: [&str; 14] = [
+    "author",
+    "title",
+    "school",
+    "type",
+    "address",
+    "month",
+    "year",
+    "doi",
+    "url",
+    "urldate",
+    "eprint",
+    "archiveprefix",
+    "primaryclass",
+    "eprinttype",
+];
+
 /// Replace the citekey in a Zotero-rendered BibTeX entry (`@type{oldkey,
 /// ...}`) with `new_key`, and keep only the fields requested for `zotero export`.
 fn replace_citekey_and_filter_fields(
@@ -122,6 +139,19 @@ fn replace_citekey_and_filter_fields(
         .map(|i| i + open + 1)
         .ok_or_else(|| anyhow!("unexpected bibtex format (no ',' found)"))?;
     let close = matching_entry_close(entry, open)?;
+    let entry_type = entry[..open]
+        .trim()
+        .trim_start_matches('@')
+        .to_ascii_lowercase();
+    let export_fields: &[&str] = if item.item_type() == "thesis"
+        || matches!(
+            entry_type.as_str(),
+            "phdthesis" | "mastersthesis" | "thesis"
+        ) {
+        &BIBTEX_THESIS_FIELDS
+    } else {
+        &BIBTEX_EXPORT_FIELDS
+    };
 
     let mut fields = Vec::new();
     for field in split_bibtex_fields(&entry[comma + 1..close]) {
@@ -129,7 +159,7 @@ fn replace_citekey_and_filter_fields(
             continue;
         };
         let name = field[..eq].trim().to_ascii_lowercase();
-        if BIBTEX_EXPORT_FIELDS.contains(&name.as_str()) {
+        if export_fields.contains(&name.as_str()) {
             let mut value = field[eq + 1..]
                 .trim()
                 .trim_end_matches(',')
@@ -146,7 +176,7 @@ fn replace_citekey_and_filter_fields(
     }
 
     let mut out = format!("{}{},", &entry[..open + 1], new_key);
-    for wanted in BIBTEX_EXPORT_FIELDS {
+    for wanted in export_fields {
         if let Some((_, value)) = fields.iter().find(|(name, _)| name == wanted) {
             out.push_str(&format!("\n  {} = {},", wanted, value));
         }
@@ -362,7 +392,7 @@ fn format_bibitem(item: &ApiItem, citekey: &str) -> String {
 }
 
 fn aps_reference(item: &ApiItem) -> String {
-    if item.item_type() != "journalArticle"
+    if !matches!(item.item_type(), "journalArticle" | "thesis")
         && let Some(arxiv) = arxiv_id(item)
     {
         return finish_reference(join_nonempty(vec![
@@ -472,7 +502,13 @@ fn aps_chapter_or_proceeding(item: &ApiItem) -> String {
 fn aps_thesis(item: &ApiItem) -> String {
     let mut chunks = Vec::new();
     chunks.extend(creators(item));
-    let thesis_type = field(item, "thesisType").unwrap_or_else(|| "Ph.D. thesis".to_string());
+    if let Some(title) = field(item, "title") {
+        chunks.push(format!(
+            "\\emph{{{}}}",
+            latex_escape(&strip_trailing_periods(&title))
+        ));
+    }
+    let thesis_type = field(item, "thesisType").unwrap_or_else(|| "Thesis".to_string());
     if let Some(university) = field(item, "university") {
         chunks.push(format!(
             "{}, {}",
@@ -484,6 +520,13 @@ fn aps_thesis(item: &ApiItem) -> String {
     }
     if let Some(year) = year(item) {
         chunks.push(latex_escape(&year));
+    }
+    if let Some(arxiv) = arxiv_id(item) {
+        chunks.push(format!(
+            "\\href{{https://arxiv.org/abs/{}}}{{arXiv:{}}}",
+            latex_escape_url(&arxiv),
+            latex_escape(&arxiv)
+        ));
     }
     finish_reference(chunks.join(", "))
 }
@@ -760,6 +803,31 @@ mod tests {
     use crate::zotero_api::ApiItem;
 
     #[test]
+    fn preserves_bibtex_thesis_fields_and_entry_types() {
+        for (entry_type, item_type) in [
+            ("phdthesis", ""),
+            ("mastersthesis", ""),
+            ("thesis", ""),
+            ("misc", "thesis"),
+        ] {
+            let item = ApiItem {
+                key: "THESIS".to_string(),
+                version: 1,
+                data: serde_json::json!({"itemType": item_type}),
+            };
+            let entry = format!(
+                "@{entry_type}{{old,\n  title = {{A {{nested}} title}},\n  school = {{University, Department}},\n  type = {{Master's thesis}},\n  address = {{City}},\n  year = {{2020}},\n  url = {{https://example.test/thesis}},\n  eprint = {{2001.01234}},\n  archivePrefix = {{arXiv}},\n  abstract = {{Omit me}},\n}}"
+            );
+            assert_eq!(
+                replace_citekey_and_filter_fields(&entry, "new", true, &item).unwrap(),
+                format!(
+                    "@{entry_type}{{new,\n  title = {{A {{nested}} title}},\n  school = {{University, Department}},\n  type = {{Master's thesis}},\n  address = {{City}},\n  year = {{2020}},\n  url = {{https://example.test/thesis}},\n  eprint = {{2001.01234}},\n  archiveprefix = {{arXiv}},\n}}"
+                )
+            );
+        }
+    }
+
+    #[test]
     fn replaces_bibtex_citekey_and_keeps_only_requested_fields() {
         let item = ApiItem {
             key: "ABCD1234".to_string(),
@@ -908,6 +976,40 @@ mod tests {
         assert_eq!(
             format_bibitem(&item, "Dirac1999"),
             "\\bibitem{Dirac1999} P. Dirac, \\emph{Quantum Mechanics}, (Academic Press, New York, 1999)."
+        );
+    }
+
+    #[test]
+    fn preserves_thesis_metadata_with_arxiv_identifier() {
+        let item = ApiItem {
+            key: "THESIS".to_string(),
+            version: 1,
+            data: serde_json::json!({
+                "itemType": "thesis",
+                "title": "Richardson-Gaudin models and broken integrability",
+                "thesisType": "Ph.D. thesis",
+                "university": "Ghent University",
+                "date": "2018",
+                "url": "https://arxiv.org/abs/1809.04447",
+                "creators": [{"creatorType": "author", "firstName": "Pieter W.", "lastName": "Claeys"}]
+            }),
+        };
+        assert_eq!(
+            format_bibitem(&item, "claeys2018"),
+            "\\bibitem{claeys2018} P. W. Claeys, \\emph{Richardson-Gaudin models and broken integrability}, Ph.D. thesis, Ghent University, 2018, \\href{https://arxiv.org/abs/1809.04447}{arXiv:1809.04447}."
+        );
+    }
+
+    #[test]
+    fn does_not_assume_a_thesis_is_a_doctorate() {
+        let item = ApiItem {
+            key: "THESIS".to_string(),
+            version: 1,
+            data: serde_json::json!({"itemType": "thesis", "date": "2020"}),
+        };
+        assert_eq!(
+            format_bibitem(&item, "thesis2020"),
+            "\\bibitem{thesis2020} Thesis, 2020."
         );
     }
 
