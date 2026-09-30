@@ -27,7 +27,6 @@ pub fn run(identifier: &str) -> Result<()> {
     // Delete the live item so we have a current Zotero version for the
     // conditional request instead of relying on the cache's possibly stale one.
     let item = write_client.get_item(&cached_item.key)?;
-    let title = item.title();
     let removed_key = item.key.clone();
     let new_library_version = write_client.delete_item(&item.key, item.version)?;
 
@@ -53,6 +52,5 @@ pub fn run(identifier: &str) -> Result<()> {
     }
     keywords.save()?;
 
-    println!("Removed '{}' ({}).", title, removed_key);
     Ok(())
 }

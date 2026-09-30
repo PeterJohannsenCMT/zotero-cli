@@ -71,7 +71,6 @@ pub fn edit(name: &str, new_name: &str) -> Result<()> {
     }
     cache.save()?;
 
-    println!("Renamed '{}' to '{}'.", name, new_name);
     Ok(())
 }
 
@@ -93,14 +92,10 @@ pub fn use_collection(collection: &str) -> Result<()> {
     let mut config = Config::load()?;
     let cache = load_synced_cache()?;
     let key = cache.resolve_collection_by_name(collection)?;
-    let name = cache
-        .collection_name(&key)
-        .unwrap_or_else(|| collection.to_string());
 
     config.current_collection_key = Some(key);
     config.save()?;
 
-    println!("Now using subcollection '{}'.", name);
     Ok(())
 }
 
@@ -109,7 +104,6 @@ pub fn clear_current() -> Result<()> {
     let mut config = Config::load()?;
     config.current_collection_key = None;
     config.save()?;
-    println!("Now using the library top level.");
     Ok(())
 }
 
@@ -196,11 +190,6 @@ fn set_item_collections(identifier: &str, collection: &str, edit: CollectionEdit
     cache.items.insert(item.key.clone(), item.clone());
     cache.save()?;
 
-    match edit {
-        CollectionEdit::Replace => println!("Moved '{}' to '{}'.", item.title(), collection),
-        CollectionEdit::Add => println!("Added '{}' to '{}'.", item.title(), collection),
-        CollectionEdit::Remove => println!("Removed '{}' from '{}'.", item.title(), collection),
-    }
     Ok(())
 }
 

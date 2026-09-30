@@ -11,6 +11,5 @@ pub fn run() -> Result<()> {
     let write_client = ZoteroClient::write_preferred(&config)?;
     let mut cache = Cache::load()?;
     sync::force_sync(&read_client, &write_client, &mut cache)?;
-    eprintln!("Synced with Zotero.");
     Ok(())
 }
