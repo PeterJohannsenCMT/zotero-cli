@@ -4,7 +4,6 @@ use std::process::Command;
 use crate::cache::Cache;
 use crate::config::Config;
 use crate::editable_item::EditableItem;
-use crate::keywords::Keywords;
 use crate::sync;
 use crate::zotero_api::ZoteroClient;
 
@@ -31,10 +30,10 @@ pub fn run(identifier: &str) -> Result<()> {
     // Edit the live item so external tag changes don't leave us patching with
     // a stale Zotero version (412 Precondition Failed) or displaying old data.
     let item = write_client.get_item(&cached_item.key)?;
-    let mut keyword_store = Keywords::load()?;
-    let mut editable = EditableItem::from_data(&item.data);
-    editable.keywords = keyword_store.for_item(&item.key);
-    let toml_text = toml::to_string_pretty(&editable).context("serializing item for editing")?;
+    let editable = EditableItem::from_data(&item.data);
+    let toml_text = editable
+        .to_editor_toml()
+        .context("serializing item for editing")?;
 
     let tmp_path = std::env::temp_dir().join(format!("zotero-cli-edit-{}.toml", item.key));
     std::fs::write(&tmp_path, &toml_text)
@@ -57,11 +56,10 @@ pub fn run(identifier: &str) -> Result<()> {
     let _ = std::fs::remove_file(&tmp_path);
 
     let edited: EditableItem = toml::from_str(&edited_text).context("parsing edited TOML")?;
-    let patch = edited.to_patch();
-
-    keyword_store.set(&item.key, edited.keywords.clone());
-    keyword_store.save()?;
-
+    let patch = edited.patch_for(&item.data)?;
+    if patch.as_object().is_some_and(|fields| fields.is_empty()) {
+        return Ok(());
+    }
     let new_version = write_client.update_item(&item.key, item.version, patch.clone())?;
 
     let mut updated_item = item;
@@ -75,8 +73,6 @@ pub fn run(identifier: &str) -> Result<()> {
     updated_item.version = new_version;
     cache.items.insert(updated_item.key.clone(), updated_item);
     cache.save()?;
-
-    println!("Updated '{}'.", edited.title);
 
     Ok(())
 }

@@ -5,8 +5,7 @@ use std::process::Command;
 use crate::cache::Cache;
 use crate::config::Config;
 use crate::crossref;
-use crate::editable_item::EditableItem;
-use crate::keywords::Keywords;
+use crate::editable_item::{EditableAuthor, EditableItem};
 use crate::sync;
 use crate::tagging;
 use crate::zotero_api::{ApiItem, ZoteroClient};
@@ -121,9 +120,13 @@ pub fn run_manual(item_type: &str) -> Result<()> {
         .item_template(item_type)
         .with_context(|| format!("fetching item template for type '{}'", item_type))?;
 
-    let editable = EditableItem::blank();
-    let toml_text =
-        toml::to_string_pretty(&editable).context("serializing blank item for editing")?;
+    let mut editable = EditableItem::from_data(&template);
+    if editable.authors.names.is_empty() {
+        editable.authors.names.push(EditableAuthor::default());
+    }
+    let toml_text = editable
+        .to_editor_toml()
+        .context("serializing blank item for editing")?;
 
     let tmp_path = std::env::temp_dir().join(format!("zotero-cli-add-{}.toml", std::process::id()));
     std::fs::write(&tmp_path, &toml_text)
@@ -150,18 +153,13 @@ pub fn run_manual(item_type: &str) -> Result<()> {
         bail!("aborting: no title given");
     }
 
-    let item = edited.fill_template(template);
+    let item = edited.fill_template(template)?;
     let mut created = write_client.create_item(item)?;
 
     match assign_citation_tag(&read_client, &write_client, &mut created) {
-        Ok(Some(tag)) => println!(
-            "Added '{}' as [{}] (key {})",
-            created.title(),
-            tag,
-            created.key
-        ),
-        Ok(None) => println!(
-            "Added '{}' (key {}) — no author/date given, so no AuthorYear tag was assigned; \
+        Ok(Some(_)) => {}
+        Ok(None) => eprintln!(
+            "warning: added '{}' (key {}) but no author/date was given, so no AuthorYear tag was assigned; \
              add them with `zotero edit {}` and `zotero sync` will backfill one",
             created.title(),
             created.key,
@@ -173,12 +171,6 @@ pub fn run_manual(item_type: &str) -> Result<()> {
             created.key,
             err
         ),
-    }
-
-    if !edited.keywords.is_empty() {
-        let mut keyword_store = Keywords::load()?;
-        keyword_store.set(&created.key, edited.keywords.clone());
-        keyword_store.save()?;
     }
 
     // Insert directly into the cache so it shows up immediately in `list`/

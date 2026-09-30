@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Free-form keywords the user attaches to items via `zotero edit`. These
+/// Existing free-form keywords, preserved independently of the citation editor. These
 /// are purely local (Zotero's item schema has no "keywords" field, so they
 /// can't be synced through the Web API) and are stored separately from
 /// `cache.json`, which is disposable and gets deleted to force a resync.

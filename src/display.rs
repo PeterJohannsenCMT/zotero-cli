@@ -1,4 +1,5 @@
 use std::io::IsTerminal;
+use std::sync::OnceLock;
 
 use terminal_size::{Width, terminal_size};
 
@@ -20,6 +21,66 @@ pub fn display_key(item: &ApiItem) -> String {
 /// plain, script-friendly output.
 pub fn stdout_is_terminal() -> bool {
     std::io::stdout().is_terminal()
+}
+
+/// Semantic style groups for human-facing terminal output. Keeping these as
+/// named groups (rather than sprinkling ANSI escape codes through commands)
+/// makes it easier to tune the CLI's palette in one place.
+#[derive(Clone, Copy)]
+pub enum Highlight {
+    Label,
+    Section,
+    Title,
+    Creator,
+    Date,
+    Venue,
+    Key,
+    Identifier,
+    Keyword,
+    Collection,
+    Muted,
+    Body,
+}
+
+impl Highlight {
+    fn sgr(self) -> &'static str {
+        match self {
+            Highlight::Label => "1;38;5;244",
+            Highlight::Section => "1;38;5;250",
+            Highlight::Title => "1;38;5;255",
+            Highlight::Creator | Highlight::Date | Highlight::Venue => "38;5;252",
+            Highlight::Key => "1;38;5;39",
+            Highlight::Identifier => "38;5;39",
+            Highlight::Keyword | Highlight::Collection | Highlight::Muted => "38;5;244",
+            Highlight::Body => "38;5;250",
+        }
+    }
+}
+
+/// Apply a semantic highlight group when stdout is an interactive terminal.
+/// Respects the common NO_COLOR/CLICOLOR/CLICOLOR_FORCE conventions so piped
+/// output stays plain by default.
+pub fn highlight(text: &str, group: Highlight) -> String {
+    if !styles_enabled() || text.is_empty() {
+        return text.to_string();
+    }
+    format!("\x1b[{}m{text}\x1b[0m", group.sgr())
+}
+
+fn styles_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        if std::env::var_os("NO_COLOR").is_some() {
+            return false;
+        }
+        if std::env::var("CLICOLOR_FORCE").is_ok_and(|value| value != "0") {
+            return true;
+        }
+        if std::env::var("CLICOLOR").is_ok_and(|value| value == "0") {
+            return false;
+        }
+        stdout_is_terminal()
+    })
 }
 
 /// Whether this process is one stage of a shell pipeline that also runs

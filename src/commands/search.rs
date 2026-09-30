@@ -151,7 +151,7 @@ fn tags_haystack(item: &ApiItem) -> String {
     item.tags().join(" \u{1}").to_lowercase()
 }
 
-/// Just the local keywords (set via `zotero edit`), lowercased.
+/// Just the existing local keywords, lowercased.
 fn keywords_haystack(item: &ApiItem, keywords: &HashMap<String, Vec<String>>) -> String {
     keywords
         .get(&item.key)

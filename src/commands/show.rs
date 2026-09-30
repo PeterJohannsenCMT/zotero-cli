@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::cache::Cache;
 use crate::config::Config;
-use crate::display;
+use crate::display::{self, Highlight};
 use crate::keywords::Keywords;
 use crate::sync;
 use crate::zotero_api::{ApiItem, ZoteroClient};
@@ -21,60 +21,123 @@ pub fn run(identifier: &str) -> Result<()> {
     let keyword_store = Keywords::load()?;
     let keywords = keyword_store.for_item(&item.key);
 
-    print_line("Title", &item.title());
-    print_line("Authors", &format_creators(item));
-    print_line("Date", &format_date(item.date()));
-    print_line("Journal", string_field(&item.data, "publicationTitle"));
-    print_line("Zotero Key", &item.key);
+    print_line("Title", &item.title(), Highlight::Title);
+    print_line("Authors", &format_creators(item), Highlight::Creator);
+    print_line("Date", &format_date(item.date()), Highlight::Date);
+    print_line(
+        "Journal",
+        string_field(&item.data, "publicationTitle"),
+        Highlight::Venue,
+    );
     if let Some(citation_key) = item.citation_key()
         && citation_key != item.key
     {
-        print_line("Citation key", &citation_key);
+        print_line("Citation key", &citation_key, Highlight::Key);
     }
-    print_line("Type", item.item_type());
-    print_line("Version", &item.version.to_string());
-    print_line("Book title", string_field(&item.data, "bookTitle"));
-    print_line("Proceedings", string_field(&item.data, "proceedingsTitle"));
-    print_line("Website", string_field(&item.data, "websiteTitle"));
-    print_line("Publisher", string_field(&item.data, "publisher"));
-    print_line("Place", string_field(&item.data, "place"));
-    print_line("Volume", string_field(&item.data, "volume"));
-    print_line("Issue", string_field(&item.data, "issue"));
-    print_line("Pages", string_field(&item.data, "pages"));
-    print_line("DOI", string_field(&item.data, "DOI"));
-    print_line("ISBN", string_field(&item.data, "ISBN"));
-    print_line("ISSN", string_field(&item.data, "ISSN"));
-    print_line("URL", string_field(&item.data, "url"));
-    print_line("Accessed", string_field(&item.data, "accessDate"));
-    print_line("Catalog", string_field(&item.data, "libraryCatalog"));
-    print_line("Archive", string_field(&item.data, "archive"));
-    print_line("Archive loc.", string_field(&item.data, "archiveLocation"));
-    print_line("Rights", string_field(&item.data, "rights"));
-    print_line("Tags", &item.tags().join(", "));
-    print_line("Keywords", &keywords.join(", "));
-    print_line("Collections", &format_collections(item, &cache));
-    print_line("Attachments", &format_attachments(item, &cache));
-    print_multiline("Abstract", string_field(&item.data, "abstractNote"));
-    print_multiline("Extra", string_field(&item.data, "extra"));
+    print_line("Version", &item.version.to_string(), Highlight::Muted);
+    print_line(
+        "Book title",
+        string_field(&item.data, "bookTitle"),
+        Highlight::Venue,
+    );
+    print_line(
+        "Proceedings",
+        string_field(&item.data, "proceedingsTitle"),
+        Highlight::Venue,
+    );
+    print_line(
+        "Website",
+        string_field(&item.data, "websiteTitle"),
+        Highlight::Venue,
+    );
+    print_line(
+        "Publisher",
+        string_field(&item.data, "publisher"),
+        Highlight::Muted,
+    );
+    print_line("Place", string_field(&item.data, "place"), Highlight::Muted);
+    print_line(
+        "Volume",
+        string_field(&item.data, "volume"),
+        Highlight::Muted,
+    );
+    print_line("Issue", string_field(&item.data, "issue"), Highlight::Muted);
+    print_line("Pages", string_field(&item.data, "pages"), Highlight::Muted);
+    print_line(
+        "DOI",
+        string_field(&item.data, "DOI"),
+        Highlight::Identifier,
+    );
+    print_line(
+        "ISBN",
+        string_field(&item.data, "ISBN"),
+        Highlight::Identifier,
+    );
+    print_line(
+        "Accessed",
+        string_field(&item.data, "accessDate"),
+        Highlight::Date,
+    );
+    print_line(
+        "Catalog",
+        string_field(&item.data, "libraryCatalog"),
+        Highlight::Muted,
+    );
+    print_line(
+        "Archive",
+        string_field(&item.data, "archive"),
+        Highlight::Muted,
+    );
+    print_line(
+        "Archive loc.",
+        string_field(&item.data, "archiveLocation"),
+        Highlight::Muted,
+    );
+    print_line(
+        "Rights",
+        string_field(&item.data, "rights"),
+        Highlight::Muted,
+    );
+    print_line("Keywords", &keywords.join(", "), Highlight::Keyword);
+    print_line(
+        "Collections",
+        &format_collections(item, &cache),
+        Highlight::Collection,
+    );
+    print_multiline(
+        "Abstract",
+        string_field(&item.data, "abstractNote"),
+        Highlight::Body,
+    );
+    print_multiline("Extra", string_field(&item.data, "extra"), Highlight::Body);
 
     Ok(())
 }
 
-fn print_line(label: &str, value: &str) {
-    if !value.trim().is_empty() {
-        println!("{:<13} {}", format!("{label}:"), value.trim());
+fn print_line(label: &str, value: &str, group: Highlight) {
+    let value = value.trim();
+    if !value.is_empty() {
+        let label = format!("{:<13}", format!("{label}:"));
+        println!(
+            "{} {}",
+            display::highlight(&label, Highlight::Label),
+            display::highlight(value, group)
+        );
     }
 }
 
-fn print_multiline(label: &str, value: &str) {
+fn print_multiline(label: &str, value: &str, group: Highlight) {
     let value = value.trim();
     if value.is_empty() {
         return;
     }
 
-    println!("{label}:");
+    println!(
+        "{}",
+        display::highlight(&format!("{label}:"), Highlight::Section)
+    );
     for line in value.lines() {
-        println!("  {}", line.trim());
+        println!("  {}", display::highlight(line.trim(), group));
     }
 }
 
@@ -178,27 +241,4 @@ fn format_collections(item: &ApiItem, cache: &Cache) -> String {
                 .join(", ")
         })
         .unwrap_or_default()
-}
-
-fn format_attachments(item: &ApiItem, cache: &Cache) -> String {
-    let mut attachments = cache
-        .items
-        .values()
-        .filter(|candidate| {
-            candidate.parent_item() == Some(item.key.as_str())
-                && candidate.item_type() == "attachment"
-        })
-        .map(|attachment| {
-            let title = attachment.title();
-            let key = display::display_key(attachment);
-            if title == "(untitled)" {
-                key
-            } else {
-                format!("{title} ({key})")
-            }
-        })
-        .collect::<Vec<_>>();
-
-    attachments.sort();
-    attachments.join(", ")
 }
