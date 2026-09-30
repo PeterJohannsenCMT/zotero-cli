@@ -142,6 +142,8 @@ enum Commands {
     },
     /// Force a sync with the Zotero API, ignoring the freshness window
     Sync,
+    /// Check for gaps in citation-key suffixes
+    CheckCitationKeys,
     /// Configure your Zotero API credentials and data directory
     Config,
     /// Print a shell completion script (with dynamic paper-key suggestions
@@ -295,6 +297,7 @@ fn main() {
             !no_revtex_journals,
         ),
         Commands::Sync => commands::sync::run(),
+        Commands::CheckCitationKeys => commands::check_citation_keys::run(),
         Commands::Config => commands::config_cmd::run(),
         Commands::Completions { shell } => commands::completions::run(shell),
     };

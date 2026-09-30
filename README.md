@@ -245,6 +245,13 @@ Open a new shell (or `rm -f ~/.zcompdump*; compinit` in your current one, since
 `compinit` caches what it found) and `zotero open <TAB>` / `zotero edit <TAB>`
 will suggest matching paper keys.
 
+## Citation-key checks
+
+`zotero check-citation-keys` reports citation keys whose collision suffixes can
+be compacted. For example, if `surname2018a` exists but `surname2018` does not,
+it prints `surname2018a -> surname2018`. The command only reports suggested
+renames; it does not modify Zotero items.
+
 ## Local API and cache
 
 For reads, `zotero` first tries Zotero Desktop's local API at

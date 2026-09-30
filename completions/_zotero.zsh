@@ -44,6 +44,7 @@ _zotero() {
                 'fetch-pdf:Look up and attach a PDF for an existing item'
                 'export:Export items as BibTeX'
                 'sync:Force a sync with the Zotero API'
+                'check-citation-keys:Check for gaps in citation-key suffixes'
                 'config:Configure your Zotero API credentials'
                 'completions:Print a shell completion script'
             )

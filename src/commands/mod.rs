@@ -1,5 +1,6 @@
 pub mod add;
 pub mod attach;
+pub mod check_citation_keys;
 pub mod collections;
 pub mod completions;
 pub mod config_cmd;
