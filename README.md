@@ -143,6 +143,12 @@ in `thesisType` and `university`; an arXiv identifier does not override thesis
 metadata. If the degree is missing, export uses `Thesis` rather than assuming a
 doctorate.
 
+Both export formats also check arXiv comments for preprints, manuscripts, and
+reports with arXiv identifiers. Explicit doctoral or master's thesis metadata
+is used for the export, including a university when clearly stated. This does
+not change the Zotero record. If the lookup fails, export warns and uses the
+stored metadata; ordinary preprints retain their existing formatting.
+
 ## Neovim integration
 
 The Neovim plugin is a thin editor wrapper around the `zotero` executable.
