@@ -90,8 +90,11 @@ pub fn run(doi: &str, download_pdf: bool) -> Result<()> {
     // Insert directly into the cache so it shows up immediately in `list`/
     // `search`/`open`/`edit` even within the freshness window that would
     // otherwise skip talking to the server again.
-    cache.items.insert(created.key.clone(), created);
+    let key = created.key.clone();
+    cache.items.insert(key.clone(), created);
     cache.save()?;
+
+    println!("Added successfully (citation key {tag}).");
 
     Ok(())
 }
@@ -478,8 +481,9 @@ pub fn run_manual(item_type: &str) -> Result<()> {
     let item = edited.fill_template(template)?;
     let mut created = write_client.create_item(item)?;
 
+    let mut citation_key = None;
     match assign_citation_tag(&read_client, &write_client, &mut created) {
-        Ok(Some(_)) => {}
+        Ok(Some(tag)) => citation_key = Some(tag),
         Ok(None) => eprintln!(
             "warning: added '{}' (key {}) but no author/date was given, so no AuthorYear tag was assigned; \
              add them with `zotero edit {}` and `zotero sync` will backfill one",
@@ -499,8 +503,15 @@ pub fn run_manual(item_type: &str) -> Result<()> {
     // `search`/`open`/`edit` even within the freshness window that would
     // otherwise skip talking to the server again.
     let mut cache = Cache::load()?;
-    cache.items.insert(created.key.clone(), created);
+    let key = created.key.clone();
+    cache.items.insert(key.clone(), created);
     cache.save()?;
+
+    if let Some(tag) = citation_key {
+        println!("Added successfully (citation key {tag}).");
+    } else {
+        println!("Added successfully (no citation key assigned).");
+    }
 
     Ok(())
 }
