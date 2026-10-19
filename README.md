@@ -253,6 +253,32 @@ be compacted. For example, if `surname2018a` exists but `surname2018` does not,
 it prints `surname2018a -> surname2018`. The command only reports suggested
 renames; it does not modify Zotero items.
 
+## Offline use
+
+Read commands automatically fall back to the last cached library if refreshing
+fails, with a warning that results may be stale. This includes `list`, `search`,
+`show`, collection browsing, citation-key checks, export, and opening local PDFs.
+
+Use `--offline` to avoid all online services explicitly:
+
+```sh
+zotero --offline search majorana
+zotero --offline show Smith2020
+zotero --offline open Smith2020
+zotero --offline export --bib Smith2020
+```
+
+Offline reads can use Zotero Desktop's local API (if enabled) or the CLI's saved
+cache, even when Desktop is closed. Run `zotero sync` online once to populate the
+cache. The CLI does not read Zotero's SQLite database directly; if neither the
+cache nor the local API is available, it explains how to make data available.
+Only metadata and PDFs already on disk are available offline. Missing PDFs and
+write commands require connectivity; changes are not queued for later upload.
+BibTeX is rendered from stored metadata when Zotero's renderer is unavailable
+(and may differ from Zotero's rendering). Optional arXiv enrichment is skipped
+in offline mode. Explicit `sync` reports refresh errors instead of silently
+using stale data.
+
 ## Local API and cache
 
 For reads, `zotero` first tries Zotero Desktop's local API at

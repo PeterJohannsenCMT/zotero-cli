@@ -7,7 +7,10 @@ pub struct HttpClient {
 
 impl HttpClient {
     pub fn new(user_agent: &str, default_headers: Vec<(String, String)>) -> Self {
-        let agent = ureq::AgentBuilder::new().user_agent(user_agent).build();
+        let agent = ureq::AgentBuilder::new()
+            .user_agent(user_agent)
+            .timeout(std::time::Duration::from_secs(10))
+            .build();
         Self {
             agent,
             default_headers,

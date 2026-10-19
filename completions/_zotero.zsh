@@ -25,6 +25,7 @@ _zotero() {
     typeset -A opt_args
 
     _arguments -C \
+        '--offline[Use local data only; never contact online services]' \
         '1: :->command' \
         '*:: :->args'
 
@@ -53,15 +54,17 @@ _zotero() {
         args)
             case $line[1] in
                 open|show|edit|remove|fetch-pdf)
-                    _arguments '1:paper key:_zotero_paper_keys'
+                    _arguments '--offline[Use local data only]' '1:paper key:_zotero_paper_keys'
                     ;;
                 list|search)
                     _arguments \
+                        '--offline[Use local data only]' \
                         '--subcollection=[Only items in this subcollection]:collection:_zotero_collection_names' \
                         '--tag=[Only items with this tag]:tag:_zotero_paper_keys'
                     ;;
                 add)
                     _arguments \
+                        '--offline[Use local data only]' \
                         '--manual[Enter item metadata by hand in $EDITOR]' \
                         '--type=[Zotero item type for manual mode]:item type:(journalArticle book bookSection webpage report thesis dataset conferencePaper)' \
                         '--nopdf[Do not try to download and attach a PDF]' \
@@ -69,11 +72,13 @@ _zotero() {
                     ;;
                 attach-pdf)
                     _arguments \
+                        '--offline[Use local data only]' \
                         '1:paper key:_zotero_paper_keys' \
                         '2:PDF file:_files -g "*.pdf(-.)"'
                     ;;
                 export)
                     _arguments \
+                        '--offline[Use local data only]' \
                         '--bib[Export in BibTeX .bib format instead of as LaTeX bibitem entries]' \
                         '--no-revtex-journals[Preserve Zotero journal strings in BibTeX output]' \
                         '--subcollection=[Export items in this subcollection]:collection:_zotero_collection_names' \
@@ -105,11 +110,13 @@ _zotero() {
                                 ;;
                             edit)
                                 _arguments \
+                        '--offline[Use local data only]' \
                                     '1:collection:_zotero_collection_names' \
                                     '2:new name:'
                                 ;;
                             move-item|add-item|remove-item)
                                 _arguments \
+                        '--offline[Use local data only]' \
                                     '1:paper key:_zotero_paper_keys' \
                                     '2:collection:_zotero_collection_names'
                                 ;;

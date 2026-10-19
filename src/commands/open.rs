@@ -53,6 +53,12 @@ pub fn run(identifier: &str) -> Result<()> {
         let data_dir = storage::find_data_dir(&config)?;
         let path = storage::resolve_attachment_path(&data_dir, &attachment.key, filename);
         if !path.exists() {
+            if crate::offline::enabled() {
+                bail!(
+                    "PDF is not available locally at {}; download it while online first",
+                    path.display()
+                );
+            }
             let web_client = ZoteroClient::web(&config)?;
             let bytes = web_client
                 .download_attachment_file(&attachment.key)
@@ -71,6 +77,9 @@ pub fn run(identifier: &str) -> Result<()> {
     }
 
     if let Some(url) = item.url_or_doi() {
+        if crate::offline::enabled() {
+            bail!("no local PDF available; item URL (requires internet): {url}");
+        }
         eprintln!("warning: no PDF attachment found; opening URL/DOI instead");
         open::that(&url)?;
         return Ok(());

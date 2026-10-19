@@ -68,7 +68,16 @@ pub fn run(
         });
 
         let entry = if bib {
-            match read_client.item_bibtex(&item.key) {
+            match if crate::offline::enabled() {
+                Ok(local_bibtex(item, &citekey))
+            } else {
+                read_client.item_bibtex(&item.key).or_else(|err| {
+                    eprintln!(
+                        "warning: Zotero BibTeX unavailable; rendering stored metadata: {err:#}"
+                    );
+                    Ok::<_, anyhow::Error>(local_bibtex(item, &citekey))
+                })
+            } {
                 Ok(bibtex) => {
                     let bibtex = add_thesis_bibtex_metadata(&bibtex, item);
                     replace_citekey_and_filter_fields(&bibtex, &citekey, revtex_journals, item)
@@ -105,6 +114,78 @@ pub fn run(
     Ok(())
 }
 
+/// Offline rendering from the same stored metadata used by bibitem export.
+fn local_bibtex(item: &ApiItem, citekey: &str) -> String {
+    let kind = match item.item_type() {
+        "journalArticle" => "article",
+        "book" => "book",
+        "bookSection" => "incollection",
+        "conferencePaper" => "inproceedings",
+        "thesis" => match field(item, "thesisType")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            t if t.contains("ph.d") || t.contains("phd") || t.contains("doctor") => "phdthesis",
+            t if t.contains("master") => "mastersthesis",
+            _ => "thesis",
+        },
+        "report" => "techreport",
+        _ => "misc",
+    };
+    let mut out = format!("@{kind}{{{citekey},");
+    let mut add = |name: &str, value: Option<String>| {
+        if let Some(value) = value {
+            out.push_str(&format!("\n  {name} = {{{}}},", latex_escape(&value)));
+        }
+    };
+    let authors = item
+        .data
+        .get("creators")
+        .and_then(serde_json::Value::as_array)
+        .map(|creators| {
+            creators
+                .iter()
+                .filter(|c| {
+                    c.get("creatorType").and_then(serde_json::Value::as_str) == Some("author")
+                })
+                .filter_map(|c| {
+                    if let Some(name) = c.get("name").and_then(serde_json::Value::as_str) {
+                        Some(format!("{{{}}}", latex_escape(name)))
+                    } else {
+                        let last = c.get("lastName")?.as_str()?;
+                        let first = c
+                            .get("firstName")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        Some(format!("{}, {}", latex_escape(last), latex_escape(first)))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" and ")
+        });
+    // Names are already escaped, so append them after the ordinary fields.
+    for (name, source) in [
+        ("title", "title"),
+        ("journal", "publicationTitle"),
+        ("volume", "volume"),
+        ("pages", "pages"),
+        ("doi", "DOI"),
+        ("school", "university"),
+        ("type", "thesisType"),
+        ("address", "place"),
+        ("url", "url"),
+    ] {
+        add(name, field(item, source));
+    }
+    add("year", year(item));
+    if let Some(authors) = authors.filter(|s| !s.is_empty()) {
+        out.push_str(&format!("\n  author = {{{authors}}},"));
+    }
+    out.push_str("\n}");
+    out
+}
+
 const BIBTEX_EXPORT_FIELDS: [&str; 7] = [
     "author", "title", "journal", "volume", "pages", "doi", "year",
 ];
@@ -113,7 +194,9 @@ const BIBTEX_EXPORT_FIELDS: [&str; 7] = [
 // a dissertation. Enrich only the export copy; never modify the user's library.
 fn enrich_arxiv_thesis(item: &ApiItem) -> ApiItem {
     let mut enriched = item.clone();
-    if !matches!(item.item_type(), "preprint" | "manuscript" | "report") {
+    if crate::offline::enabled()
+        || !matches!(item.item_type(), "preprint" | "manuscript" | "report")
+    {
         return enriched;
     }
     let Some(id) = arxiv_id(item) else {

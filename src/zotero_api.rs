@@ -153,6 +153,14 @@ fn version_header(resp: &ureq::Response) -> Option<i64> {
 }
 
 impl ZoteroClient {
+    #[cfg(test)]
+    pub(crate) fn unavailable_for_test() -> Self {
+        // Port zero is not a server endpoint; never contact the real Desktop API.
+        let mut client = Self::local(&Config::default()).unwrap();
+        client.base_url = "http://127.0.0.1:0/api".to_string();
+        client
+    }
+
     pub fn web(config: &Config) -> Result<Self> {
         let http = HttpClient::new(
             "zotero-cli/0.1",
@@ -211,10 +219,15 @@ impl ZoteroClient {
         action: impl Fn(&ZoteroClient) -> Result<T>,
         fallback_context: &str,
     ) -> Result<T> {
+        if crate::offline::enabled() && !self.is_local() {
+            bail!("this operation requires the Zotero Web API; unavailable offline");
+        }
         match action(self) {
             Ok(value) => Ok(value),
             Err(err) if self.is_local() => {
-                if let Some(fallback) = &self.fallback {
+                if let Some(fallback) = &self.fallback
+                    && !crate::offline::enabled()
+                {
                     action(fallback)
                         .with_context(|| format!("falling back to Zotero Web API after local API failed while {fallback_context}: {err:#}"))
                 } else {
@@ -238,7 +251,21 @@ impl ZoteroClient {
         action: impl Fn(&ZoteroClient) -> Result<T>,
         fallback_context: &str,
     ) -> Result<T> {
-        self.with_fallback(action, fallback_context)
+        if crate::offline::enabled() {
+            bail!("writing to Zotero requires connectivity; unavailable offline");
+        }
+        let result = self.with_fallback(action, fallback_context);
+        if let Err(err) = &result
+            && err.chain().any(|cause| {
+                matches!(
+                    cause.downcast_ref::<ureq::Error>(),
+                    Some(ureq::Error::Transport(_))
+                )
+            })
+        {
+            crate::offline::set(true);
+        }
+        result
     }
 
     /// GETs every page of `path`, returning the collected JSON values plus the

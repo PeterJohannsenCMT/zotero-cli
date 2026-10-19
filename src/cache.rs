@@ -9,7 +9,7 @@ use crate::zotero_api::{ApiItem, Collection};
 /// library version we've synced up to. Persisted to disk so that repeated
 /// `zotero` invocations only need to pull the delta since last time
 /// (via the Zotero API's `since=` parameter) instead of the whole library.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Cache {
     #[serde(default)]
     pub library_version: i64,

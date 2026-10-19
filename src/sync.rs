@@ -32,25 +32,49 @@ pub fn sync_library(
         return Ok(());
     }
 
-    pull_changes(read_client, cache)?;
-    dedupe_citation_keys(write_client, cache)?;
-    normalize_citation_keys(write_client, cache)?;
-    backfill_citation_keys(write_client, cache)?;
+    // Fetch into a candidate so a failed partial refresh cannot delete or mix
+    // records in the last complete snapshot.
+    let mut candidate = cache.clone();
+    if let Err(err) = pull_changes(read_client, &mut candidate) {
+        if has_snapshot(cache) {
+            eprintln!("warning: refresh failed; using cached library (may be stale): {err:#}");
+            crate::offline::set(true);
+            return Ok(());
+        }
+        return Err(err.context("no cached library available; start Zotero Desktop with its local API enabled, or run `zotero sync` online first"));
+    }
+    *cache = candidate;
+    if !crate::offline::enabled() {
+        dedupe_citation_keys(write_client, cache)?;
+        normalize_citation_keys(write_client, cache)?;
+        backfill_citation_keys(write_client, cache)?;
+    }
     cache.last_synced_at = now();
     cache.save()?;
     Ok(())
 }
 
-/// Like [`sync_library`], but ignores the freshness window and always talks
-/// to the server. For `zotero sync`, where the user is explicitly asking to
-/// pull in changes made elsewhere (e.g. the Zotero desktop app) right now.
+fn has_snapshot(cache: &Cache) -> bool {
+    cache.last_synced_at > 0 || cache.library_version > 0 || !cache.items.is_empty()
+}
+
+/// Explicit sync must report failures rather than silently serving stale data.
 pub fn force_sync(
     read_client: &ZoteroClient,
     write_client: &ZoteroClient,
     cache: &mut Cache,
 ) -> Result<()> {
-    cache.last_synced_at = 0;
-    sync_library(read_client, write_client, cache)
+    let mut candidate = cache.clone();
+    pull_changes(read_client, &mut candidate)?;
+    if !crate::offline::enabled() {
+        dedupe_citation_keys(write_client, &mut candidate)?;
+        normalize_citation_keys(write_client, &mut candidate)?;
+        backfill_citation_keys(write_client, &mut candidate)?;
+    }
+    candidate.last_synced_at = now();
+    candidate.save()?;
+    *cache = candidate;
+    Ok(())
 }
 
 fn now() -> u64 {
@@ -67,6 +91,9 @@ fn now() -> u64 {
 fn dedupe_citation_keys(client: &ZoteroClient, cache: &mut Cache) -> Result<()> {
     let keys: Vec<String> = cache.items.keys().cloned().collect();
     for key in keys {
+        if crate::offline::enabled() {
+            break;
+        }
         let item = cache.items[&key].clone();
         let tags = item.tags();
         let candidates = tagging::author_year_candidates(&tags);
@@ -113,6 +140,9 @@ fn normalize_citation_keys(client: &ZoteroClient, cache: &mut Cache) -> Result<(
 
     let keys: Vec<String> = cache.items.keys().cloned().collect();
     for key in keys {
+        if crate::offline::enabled() {
+            break;
+        }
         let item = cache.items[&key].clone();
         let Some(current) = tagging::find_author_year_tag(&item.tags()) else {
             continue;
@@ -220,6 +250,9 @@ fn backfill_citation_keys(client: &ZoteroClient, cache: &mut Cache) -> Result<()
         .collect();
 
     for key in candidate_keys {
+        if crate::offline::enabled() {
+            break;
+        }
         let item = cache.items[&key].clone();
         let Some(base) = tagging::derive_base_tag_from_item(&item) else {
             continue;
@@ -249,4 +282,33 @@ fn backfill_citation_keys(client: &ZoteroClient, cache: &mut Cache) -> Result<()
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_refresh_preserves_snapshot_but_explicit_sync_reports_failure() {
+        let client = ZoteroClient::unavailable_for_test();
+        let mut empty = Cache::default();
+        assert!(sync_library(&client, &client, &mut empty).is_err());
+
+        let item: ApiItem = serde_json::from_value(serde_json::json!({
+            "key": "ABCDEFGH", "version": 7,
+            "data": {"itemType": "journalArticle", "title": "Stored paper"}
+        }))
+        .unwrap();
+        let mut cache = Cache {
+            library_version: 7,
+            last_synced_at: 1,
+            ..Cache::default()
+        };
+        cache.items.insert(item.key.clone(), item);
+        let original = serde_json::to_value(&cache).unwrap();
+        sync_library(&client, &client, &mut cache).unwrap();
+        assert_eq!(serde_json::to_value(&cache).unwrap(), original);
+        assert!(force_sync(&client, &client, &mut cache).is_err());
+        assert_eq!(serde_json::to_value(&cache).unwrap(), original);
+    }
 }

@@ -6,6 +6,7 @@ mod display;
 mod editable_item;
 mod http;
 mod keywords;
+mod offline;
 mod storage;
 mod sync;
 mod tagging;
@@ -18,6 +19,9 @@ use commands::completions::Shell;
 #[derive(Parser)]
 #[command(name = "zotero", about = "A CLI for your Zotero library", version)]
 struct Cli {
+    /// Use local data only; never contact online services
+    #[arg(long, global = true)]
+    offline: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -213,6 +217,27 @@ fn main() {
     }
 
     let cli = Cli::parse();
+    offline::set(cli.offline);
+
+    if cli.offline
+        && matches!(
+            &cli.command,
+            Commands::Add { .. }
+                | Commands::Edit { .. }
+                | Commands::Remove { .. }
+                | Commands::AttachPdf { .. }
+                | Commands::FetchPdf { .. }
+                | Commands::Collections {
+                    command: CollectionsCommand::Edit { .. }
+                        | CollectionsCommand::MoveItem { .. }
+                        | CollectionsCommand::AddItem { .. }
+                        | CollectionsCommand::RemoveItem { .. }
+                }
+        )
+    {
+        eprintln!("error: this command writes to Zotero and is unavailable offline");
+        std::process::exit(1);
+    }
 
     let result = match cli.command {
         Commands::List { subcollection, tag } => commands::list::run(subcollection, tag),
